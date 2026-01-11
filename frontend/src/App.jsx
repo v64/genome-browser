@@ -17,12 +17,12 @@ import { DarkModeToggle } from './components/DarkModeToggle'
 import { ExportButton } from './components/ExportButton'
 import { ChatPanel } from './components/ChatPanel'
 import DataLogViewer from './components/DataLogViewer'
-import GenomeSearch from './components/GenomeSearch'
+import GenomeQuery from './components/GenomeQuery'
 import { SnpFullPage } from './components/SnpFullPage'
 
 const TABS = {
   DASHBOARD: 'dashboard',
-  SEARCH: 'search',
+  QUERY: 'query',
   BROWSE: 'browse',
   DATA: 'data',
   FAVORITES: 'favorites',
@@ -32,7 +32,7 @@ const TABS = {
 const pathToTab = {
   '/': TABS.DASHBOARD,
   '/dashboard': TABS.DASHBOARD,
-  '/search': TABS.SEARCH,
+  '/query': TABS.QUERY,
   '/browse': TABS.BROWSE,
   '/data': TABS.DATA,
   '/favorites': TABS.FAVORITES,
@@ -60,11 +60,11 @@ function AppLayout() {
   const [offset, setOffset] = useState(0)
   const [allResults, setAllResults] = useState([])
 
-  // GenomeSearch state (persists across tab switches)
-  const [genomeSearchQuery, setGenomeSearchQuery] = useState('')
-  const [genomeSearchLoading, setGenomeSearchLoading] = useState(false)
-  const [genomeSearchResults, setGenomeSearchResults] = useState(null)
-  const [genomeSearchError, setGenomeSearchError] = useState(null)
+  // GenomeQuery state (persists across tab switches)
+  const [genomeQueryText, setGenomeQueryText] = useState('')
+  const [genomeQueryLoading, setGenomeQueryLoading] = useState(false)
+  const [genomeQueryResults, setGenomeQueryResults] = useState(null)
+  const [genomeQueryError, setGenomeQueryError] = useState(null)
 
   const { toggleFavorite } = useFavorites()
   const chat = useChat()
@@ -153,7 +153,7 @@ function AppLayout() {
       }
       if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
         if (e.key === '1') setActiveTab(TABS.DASHBOARD)
-        if (e.key === '2') setActiveTab(TABS.SEARCH)
+        if (e.key === '2') setActiveTab(TABS.QUERY)
         if (e.key === '3') setActiveTab(TABS.BROWSE)
         if (e.key === '4') setActiveTab(TABS.DATA)
         if (e.key === '5') setActiveTab(TABS.FAVORITES)
@@ -211,9 +211,9 @@ function AppLayout() {
             <span className="ml-1 text-xs text-gray-400">[1]</span>
           </button>
           <button
-            onClick={() => setActiveTab(TABS.SEARCH)}
+            onClick={() => setActiveTab(TABS.QUERY)}
             className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
-              activeTab === TABS.SEARCH
+              activeTab === TABS.QUERY
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
@@ -281,18 +281,18 @@ function AppLayout() {
               <RiskDashboard onSnpClick={handleSnpClick} />
             )}
 
-            {activeTab === TABS.SEARCH && (
+            {activeTab === TABS.QUERY && (
               <div className="space-y-6">
-                <GenomeSearch
+                <GenomeQuery
                   onSnpClick={handleSnpClick}
-                  query={genomeSearchQuery}
-                  setQuery={setGenomeSearchQuery}
-                  loading={genomeSearchLoading}
-                  setLoading={setGenomeSearchLoading}
-                  results={genomeSearchResults}
-                  setResults={setGenomeSearchResults}
-                  error={genomeSearchError}
-                  setError={setGenomeSearchError}
+                  query={genomeQueryText}
+                  setQuery={setGenomeQueryText}
+                  loading={genomeQueryLoading}
+                  setLoading={setGenomeQueryLoading}
+                  results={genomeQueryResults}
+                  setResults={setGenomeQueryResults}
+                  error={genomeQueryError}
+                  setError={setGenomeQueryError}
                 />
               </div>
             )}
