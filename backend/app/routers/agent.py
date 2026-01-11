@@ -208,3 +208,16 @@ async def clear_explored_genes():
     """Clear the explored genes set to allow re-exploration of all genes."""
     gene_discovery.clear_explored()
     return {"status": "cleared"}
+
+
+@router.get("/discovery/processing")
+async def get_processing_status():
+    """Get current processing status for UI (spinner/animation support)."""
+    return gene_discovery.get_processing_status()
+
+
+@router.post("/discovery/clear-completed")
+async def clear_recently_completed(rsid: str = None):
+    """Clear a specific rsid from recently completed list, or all if not specified."""
+    gene_discovery.clear_recently_completed(rsid)
+    return {"status": "cleared", "rsid": rsid}

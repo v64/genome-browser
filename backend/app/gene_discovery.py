@@ -27,9 +27,14 @@ discovery_state = {
     "cycle_count": 0,
     "last_activity": None,
     "current_snp": None,
+    "currently_processing": set(),  # rsIDs currently being improved (for UI spinner) - now a set for parallel
+    "recently_completed": [],       # Recently completed rsIDs (for UI animation)
     "logs": [],
     "errors": []
 }
+
+MAX_RECENTLY_COMPLETED = 20
+PARALLEL_ENRICHMENT_COUNT = 3  # Number of needs-attention SNPs to process in parallel
 
 MAX_LOGS = 200
 MAX_QUEUE_SIZE = 1000
@@ -227,12 +232,14 @@ async def improve_snp(rsid: str) -> bool:
     try:
         snp = await database.get_snp_by_rsid(rsid)
         if not snp or not snp.get("genotype") or snp.get("genotype") == "--":
+            discovery_state["currently_processing"].discard(rsid)
             return False
 
         # Check if already improved
         annotation = await database.get_annotation(rsid)
         if annotation:
             if annotation.get("improved_at") or annotation.get("source") in ("claude", "user"):
+                discovery_state["currently_processing"].discard(rsid)
                 return False
         else:
             # No annotation yet - fetch from SNPedia first
@@ -242,8 +249,11 @@ async def improve_snp(rsid: str) -> bool:
             annotation = await database.get_annotation(rsid)
             if not annotation:
                 log_discovery(f"  No SNPedia data available for {rsid}", "DEBUG")
+                discovery_state["currently_processing"].discard(rsid)
                 return False
 
+        # Ensure we're in the processing set (may already be added by caller)
+        discovery_state["currently_processing"].add(rsid)
         log_discovery(f"  Improving {rsid}...")
 
         result = await claude_service.improve_annotation(rsid, snp["genotype"])
@@ -304,12 +314,24 @@ async def improve_snp(rsid: str) -> bool:
 
             await database.save_chat_message("assistant", assistant_response, [rsid])
 
+            # Track completion for UI animation
+            discovery_state["recently_completed"].append({
+                "rsid": rsid,
+                "completed_at": datetime.now().isoformat(),
+                "title": result.get("title", rsid)
+            })
+            if len(discovery_state["recently_completed"]) > MAX_RECENTLY_COMPLETED:
+                discovery_state["recently_completed"] = discovery_state["recently_completed"][-MAX_RECENTLY_COMPLETED:]
+
+            discovery_state["currently_processing"].discard(rsid)
             return True
         else:
             log_discovery(f"  Failed to improve {rsid}: {result.get('error')}", "WARN")
+            discovery_state["currently_processing"].discard(rsid)
 
     except Exception as e:
         log_discovery(f"  Error improving {rsid}: {e}", "ERROR")
+        discovery_state["currently_processing"].discard(rsid)
 
     return False
 
@@ -415,9 +437,124 @@ async def explore_random_unimproved() -> bool:
     return False
 
 
+async def process_needs_attention_single(snp: dict) -> bool:
+    """Process a single needs-attention SNP."""
+    rsid = snp["rsid"]
+    try:
+        log_discovery(f"  Starting: {rsid} ({snp.get('attention_reason', 'unknown reason')})")
+        improved = await improve_snp(rsid)
+        if improved:
+            log_discovery(f"  Completed: {rsid}")
+        return improved
+    except Exception as e:
+        log_discovery(f"  Error processing {rsid}: {e}", "ERROR")
+        return False
+
+
+async def process_needs_attention() -> int:
+    """Process multiple SNPs from the needs-attention list in parallel, keeping slots filled."""
+    try:
+        needs_attention = await database.get_needs_attention_snps(limit=12)
+        if not needs_attention:
+            return 0
+
+        # Find SNPs that can be processed (not recently completed, not already processing)
+        recent_rsids = set(r["rsid"] for r in discovery_state["recently_completed"])
+        candidates = []
+
+        for snp in needs_attention:
+            rsid = snp["rsid"]
+            # Skip if recently completed
+            if rsid in recent_rsids:
+                continue
+            # Skip if already being processed
+            if rsid in discovery_state["currently_processing"]:
+                continue
+            candidates.append(snp)
+
+        if not candidates:
+            return 0
+
+        # How many slots are available for parallel processing?
+        current_count = len(discovery_state["currently_processing"])
+        available_slots = PARALLEL_ENRICHMENT_COUNT - current_count
+
+        if available_slots <= 0:
+            return 0
+
+        # Take up to available_slots candidates
+        to_process = candidates[:available_slots]
+
+        if to_process:
+            rsids = [s['rsid'] for s in to_process]
+            log_discovery(f"Starting {len(to_process)} parallel enrichments: {', '.join(rsids)}")
+
+            # Start all improvements in parallel
+            tasks = [process_needs_attention_single(snp) for snp in to_process]
+
+            # Wait for all to complete
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Count successes
+            success_count = sum(1 for r in results if r is True)
+            return success_count
+
+        return 0
+    except Exception as e:
+        log_discovery(f"Error processing needs-attention: {e}", "ERROR")
+        return 0
+
+
+# Background task handles for continuous processing
+_continuous_enrichment_tasks: set = set()
+
+
+async def continuous_enrichment_worker():
+    """Continuously process needs-attention SNPs, maintaining PARALLEL_ENRICHMENT_COUNT active at all times."""
+    log_discovery(f"Starting continuous enrichment worker (maintaining {PARALLEL_ENRICHMENT_COUNT} parallel tasks)")
+
+    while not discovery_state["should_stop"]:
+        try:
+            # Check how many slots are available
+            current_count = len(discovery_state["currently_processing"])
+            available_slots = PARALLEL_ENRICHMENT_COUNT - current_count
+
+            if available_slots > 0:
+                # Get fresh list of needs-attention SNPs
+                needs_attention = await database.get_needs_attention_snps(limit=12)
+
+                if needs_attention:
+                    # Find candidates not already processing or recently completed
+                    recent_rsids = set(r["rsid"] for r in discovery_state["recently_completed"])
+                    candidates = [
+                        snp for snp in needs_attention
+                        if snp["rsid"] not in discovery_state["currently_processing"]
+                        and snp["rsid"] not in recent_rsids
+                    ]
+
+                    # Start tasks to fill available slots
+                    for snp in candidates[:available_slots]:
+                        rsid = snp["rsid"]
+                        # Add to processing BEFORE starting task to prevent race condition
+                        discovery_state["currently_processing"].add(rsid)
+                        log_discovery(f"Starting enrichment: {rsid} ({snp.get('attention_reason', '')})")
+                        # Fire and forget - the task will update state when done
+                        asyncio.create_task(process_needs_attention_single(snp))
+
+            # Small delay before checking again
+            await asyncio.sleep(0.5)
+
+        except Exception as e:
+            log_discovery(f"Error in continuous enrichment: {e}", "ERROR")
+            await asyncio.sleep(2)
+
+
 async def run_discovery_cycle():
     """Run a single discovery cycle."""
     discovery_state["cycle_count"] += 1
+
+    # Note: needs-attention SNPs are processed by the continuous_enrichment_worker
+    # This cycle focuses on exploring related SNPs and random discovery
 
     # Periodically explore random SNPs
     if discovery_state["cycle_count"] % RANDOM_SNP_INTERVAL == 0:
@@ -494,6 +631,9 @@ async def start_discovery_worker():
 
     log_discovery("Starting SNP discovery worker...")
 
+    # Start the continuous enrichment worker (runs in parallel, always maintaining 3 active)
+    enrichment_task = asyncio.create_task(continuous_enrichment_worker())
+
     # Initialize with seed SNPs
     try:
         seeds = await get_seed_snps()
@@ -508,6 +648,7 @@ async def start_discovery_worker():
     except Exception as e:
         log_discovery(f"Error loading seeds: {e}", "ERROR")
         discovery_state["is_running"] = False
+        enrichment_task.cancel()
         return
 
     # Main loop
@@ -527,6 +668,13 @@ async def start_discovery_worker():
                 "context": "discovery_cycle"
             })
             await asyncio.sleep(10)
+
+    # Cancel the enrichment worker
+    enrichment_task.cancel()
+    try:
+        await enrichment_task
+    except asyncio.CancelledError:
+        pass
 
     discovery_state["is_running"] = False
     log_discovery("SNP discovery worker stopped")
@@ -561,8 +709,30 @@ def get_status() -> dict:
         "cycle_count": discovery_state["cycle_count"],
         "last_activity": discovery_state["last_activity"],
         "current_snp": discovery_state["current_snp"],
+        "currently_processing": list(discovery_state["currently_processing"]),
+        "recently_completed": discovery_state["recently_completed"],
         "recent_errors": discovery_state["errors"][-5:] if discovery_state["errors"] else []
     }
+
+
+def get_processing_status() -> dict:
+    """Get just the processing status for UI polling."""
+    return {
+        "currently_processing": list(discovery_state["currently_processing"]),
+        "recently_completed": discovery_state["recently_completed"],
+        "is_running": discovery_state["is_running"]
+    }
+
+
+def clear_recently_completed(rsid: str = None):
+    """Clear a specific rsid from recently completed, or all if not specified."""
+    if rsid:
+        discovery_state["recently_completed"] = [
+            r for r in discovery_state["recently_completed"]
+            if r["rsid"] != rsid
+        ]
+    else:
+        discovery_state["recently_completed"] = []
 
 
 def get_logs(limit: int = 100) -> list[dict]:

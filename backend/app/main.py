@@ -73,8 +73,8 @@ async def initial_sync():
 
 async def start_gene_discovery_delayed():
     """Start the gene discovery worker after a delay to let initial sync complete."""
-    # Wait for initial sync to get some data first
-    await asyncio.sleep(30)
+    # Short delay just to let server start
+    await asyncio.sleep(5)
 
     # Only start if Claude is configured
     if claude_service.is_configured():

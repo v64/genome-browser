@@ -1,14 +1,143 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../api/client'
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
 import { LabelBadge } from './LabelBadge'
 
 export function RiskDashboard({ onSnpClick }) {
+  const queryClient = useQueryClient()
+  const [animatingOut, setAnimatingOut] = useState(new Set())
+  const [animatingIn, setAnimatingIn] = useState(new Set())
+  const [displayCards, setDisplayCards] = useState([]) // Stable display array that maintains positions
+  const previousNeedsAttentionRef = useRef([])
+  const isInitialRender = useRef(true)
+
   const { data: dashboard, isLoading } = useQuery({
     queryKey: ['dashboard'],
     queryFn: api.getDashboard,
+    refetchInterval: 3000, // Refetch every 3 seconds to catch updates
   })
+
+  // Poll for processing status
+  const { data: processingStatus } = useQuery({
+    queryKey: ['processingStatus'],
+    queryFn: async () => {
+      const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+      return res.json()
+    },
+    refetchInterval: 1000, // Poll every second for responsive UI
+  })
+
+  const currentlyProcessing = processingStatus?.currently_processing || []
+  const recentlyCompleted = processingStatus?.recently_completed || []
+
+  // Manage displayCards array - maintains stable positions for animations
+  useEffect(() => {
+    if (!dashboard?.needs_attention) return
+
+    const currentCards = dashboard.needs_attention
+    const currentRsids = new Set(currentCards.map(s => s.rsid))
+    const previousRsids = previousNeedsAttentionRef.current
+
+    // On initial render, just set the display cards
+    if (isInitialRender.current) {
+      isInitialRender.current = false
+      setDisplayCards(currentCards.map(c => ({ ...c, isExiting: false })))
+      previousNeedsAttentionRef.current = new Set(currentCards.map(s => s.rsid))
+      return
+    }
+
+    // Find removed cards (were in previous, not in current)
+    const removedRsids = [...previousRsids].filter(rsid => !currentRsids.has(rsid))
+
+    // Find new cards (in current, not in previous)
+    const newRsids = [...currentRsids].filter(rsid => !previousRsids.has(rsid))
+
+    // Build new display array:
+    // 1. Keep cards in their positions, mark removed ones as exiting
+    // 2. Add new cards at the end (they'll fill in visually due to grid)
+    setDisplayCards(prev => {
+      const newDisplay = []
+
+      // First, update existing cards - mark exiting ones
+      prev.forEach(card => {
+        if (removedRsids.includes(card.rsid)) {
+          // Card is being removed - mark as exiting
+          newDisplay.push({ ...card, isExiting: true })
+        } else if (currentRsids.has(card.rsid)) {
+          // Card still exists - update with fresh data
+          const freshCard = currentCards.find(c => c.rsid === card.rsid)
+          if (freshCard) {
+            newDisplay.push({ ...freshCard, isExiting: false })
+          }
+        }
+        // Cards not in current and not being removed are dropped
+      })
+
+      // Add new cards
+      newRsids.forEach(rsid => {
+        const newCard = currentCards.find(c => c.rsid === rsid)
+        if (newCard) {
+          newDisplay.push({ ...newCard, isExiting: false, isNew: true })
+        }
+      })
+
+      return newDisplay
+    })
+
+    // Mark removed cards for exit animation
+    if (removedRsids.length > 0) {
+      setAnimatingOut(prev => {
+        const next = new Set(prev)
+        removedRsids.forEach(rsid => next.add(rsid))
+        return next
+      })
+
+      // Remove exiting cards after animation
+      setTimeout(() => {
+        setDisplayCards(prev => prev.filter(card => !removedRsids.includes(card.rsid)))
+        setAnimatingOut(prev => {
+          const next = new Set(prev)
+          removedRsids.forEach(rsid => next.delete(rsid))
+          return next
+        })
+      }, 600)
+    }
+
+    // Mark new cards for enter animation
+    if (newRsids.length > 0) {
+      setAnimatingIn(prev => {
+        const next = new Set(prev)
+        newRsids.forEach(rsid => next.add(rsid))
+        return next
+      })
+
+      setTimeout(() => {
+        setAnimatingIn(prev => {
+          const next = new Set(prev)
+          newRsids.forEach(rsid => next.delete(rsid))
+          return next
+        })
+      }, 500)
+    }
+
+    // Handle cards that just completed processing
+    const completedRsids = recentlyCompleted.map(r => r.rsid)
+    const newlyCompleted = completedRsids.filter(rsid =>
+      currentRsids.has(rsid) && !animatingOut.has(rsid)
+    )
+
+    if (newlyCompleted.length > 0) {
+      setAnimatingOut(prev => {
+        const next = new Set(prev)
+        newlyCompleted.forEach(rsid => next.add(rsid))
+        return next
+      })
+    }
+
+    previousNeedsAttentionRef.current = currentRsids
+  }, [dashboard?.needs_attention, recentlyCompleted])
 
   if (isLoading) {
     return (
@@ -90,24 +219,94 @@ export function RiskDashboard({ onSnpClick }) {
             <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full text-xs font-medium">
               {needsAttention.length} items
             </span>
+            {currentlyProcessing.length > 0 && (
+              <span className="flex items-center gap-1.5 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-full text-xs font-medium">
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                </svg>
+                Enriching {currentlyProcessing.length}
+              </span>
+            )}
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
             These variants may warrant your review — high-impact genes not yet enriched, or risk variants you haven't tracked.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {needsAttention.map((snp) => (
+            {/* Render displayCards which maintains stable positions */}
+            {displayCards.map((snp) => {
+              const isProcessing = currentlyProcessing.includes(snp.rsid)
+              const isExiting = snp.isExiting || false
+              const isNew = animatingIn.has(snp.rsid)
+
+              return (
               <button
                 key={snp.rsid}
-                onClick={() => onSnpClick?.(snp)}
-                className="card p-3 text-left hover:shadow-lg hover:border-orange-300 dark:hover:border-orange-600 transition-all group relative"
+                onClick={() => !isExiting && onSnpClick?.(snp)}
+                disabled={isExiting}
+                className={`card p-3 text-left transition-all group relative ${
+                  isExiting
+                    ? 'pointer-events-none'
+                    : 'hover:shadow-lg'
+                } ${
+                  isProcessing
+                    ? 'border-green-400 dark:border-green-500 bg-green-50/50 dark:bg-green-900/20 shadow-lg shadow-green-500/20'
+                    : isExiting
+                    ? 'border-green-500'
+                    : isNew
+                    ? ''
+                    : 'hover:border-orange-300 dark:hover:border-orange-600'
+                }`}
+                style={{
+                  transition: 'all 0.5s ease-out',
+                  animation: isExiting
+                    ? 'fadeSlideOut 0.5s ease-out forwards'
+                    : isNew
+                    ? 'fadeSlideIn 0.5s ease-out forwards'
+                    : undefined,
+                }}
               >
+                {/* Processing Spinner Overlay */}
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-xl flex items-center justify-center z-10">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500 text-white rounded-full text-sm font-medium shadow-lg">
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Enriching...
+                    </div>
+                  </div>
+                )}
+
+                {/* Completed Checkmark Overlay */}
+                {isExiting && (
+                  <div className="absolute inset-0 bg-green-500/20 rounded-xl flex items-center justify-center z-10">
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-green-500 text-white rounded-full text-sm font-medium shadow-lg">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Done!
+                    </div>
+                  </div>
+                )}
+
                 {/* Attention Badge */}
-                <div className="absolute -top-2 -right-2 px-2 py-0.5 bg-orange-500 text-white rounded-full text-xs font-medium shadow-sm">
-                  {snp.attention_reason?.includes('Risk') ? '⚠️' : snp.attention_reason?.includes('magnitude') ? '📊' : '📝'}
+                <div className={`absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-xs font-medium shadow-sm ${
+                  isProcessing ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'
+                }`}>
+                  {isProcessing ? (
+                    <svg className="w-3 h-3 animate-spin inline" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                  ) : (
+                    snp.attention_reason?.includes('Risk') ? '⚠️' : snp.attention_reason?.includes('magnitude') ? '📊' : '📝'
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2 mb-2">
+                <div className={`flex items-center gap-2 mb-2 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
                   <span className="font-mono font-semibold text-orange-600 dark:text-orange-400">
                     {snp.rsid}
                   </span>
@@ -121,28 +320,31 @@ export function RiskDashboard({ onSnpClick }) {
                   </span>
                 </div>
 
-                {snp.title && (
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 line-clamp-1">
-                    {snp.title}
+                <div className={isProcessing || isExiting ? 'opacity-50' : ''}>
+                  {snp.title && (
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 line-clamp-1">
+                      {snp.title}
+                    </p>
+                  )}
+
+                  {snp.summary && (
+                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
+                      {snp.summary}
+                    </p>
+                  )}
+
+                  <p className="text-xs text-orange-600 dark:text-orange-400 mb-2">
+                    {snp.attention_reason}
                   </p>
-                )}
+                </div>
 
-                {snp.summary && (
-                  <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
-                    {snp.summary}
-                  </p>
-                )}
-
-                <p className="text-xs text-orange-600 dark:text-orange-400 mb-2">
-                  {snp.attention_reason}
-                </p>
-
-                <div className="flex items-center gap-2">
+                <div className={`flex items-center gap-2 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
                   <MagnitudeBadge magnitude={snp.magnitude} />
                   <ReputeBadge repute={snp.repute} />
                 </div>
               </button>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
