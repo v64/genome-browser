@@ -92,12 +92,6 @@ export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
             {cat}
           </button>
         ))}
-
-        {!snp.has_annotation && (
-          <span className="badge bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400">
-            Not annotated
-          </span>
-        )}
       </div>
     </div>
   )
