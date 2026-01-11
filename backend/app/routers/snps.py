@@ -85,11 +85,14 @@ async def get_snp(rsid: str):
             "magnitude": annotation.get("magnitude"),
             "repute": annotation.get("repute"),
             "gene": annotation.get("gene"),
+            "title": annotation.get("title"),
             "categories": annotation.get("categories", []),
             "genotype_info": genotype_info,
             "references": annotation.get("references", []),
             "your_interpretation": user_interpretation,
-            "matched_genotype": matched_gt  # Shows which genotype matched (for strand info)
+            "matched_genotype": matched_gt,  # Shows which genotype matched (for strand info)
+            "source": annotation.get("source"),
+            "original_summary": annotation.get("original_summary"),
         })
 
     return result

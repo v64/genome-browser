@@ -304,7 +304,7 @@ export default function GenomeQuery({
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                           </svg>
-                          Enriching {pendingCount} gene{pendingCount !== 1 ? 's' : ''}...
+                          Improving {pendingCount} gene{pendingCount !== 1 ? 's' : ''}...
                         </span>
                       )}
                     </div>
@@ -333,7 +333,7 @@ export default function GenomeQuery({
                               )}
                               {snp.is_improved ? (
                                 <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
-                                  ✓ enriched
+                                  ✓ improved
                                 </span>
                               ) : results.pending_improvements?.includes(snp.rsid) && (
                                 <span className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded text-xs">

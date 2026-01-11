@@ -146,7 +146,7 @@ export default function LearningConsole({ onSnpClick }) {
         <div className="flex items-center gap-2">
           {status && (
             <span className="text-xs text-gray-500 font-mono">
-              {status.stats?.queries_processed || 0}Q | {status.stats?.snps_enriched || 0}S | {status.stats?.knowledge_added || 0}K
+              {status.stats?.queries_processed || 0}Q | {status.stats?.snps_improved || 0}S | {status.stats?.knowledge_added || 0}K
             </span>
           )}
           <button

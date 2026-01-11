@@ -5,6 +5,33 @@ import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
 import { LabelBadge } from './LabelBadge'
 
+// Extract text up to and including the sentence with the first citation
+function getTextUpToFirstCitation(text) {
+  if (!text) return '';
+
+  // Find the first citation
+  const citationMatch = text.match(/\[cite:[^\]]+\]/);
+  if (!citationMatch) {
+    // No citation, return first 4 sentences
+    const sentenceRegex = /[^.!?]*[.!?]+(?:\s|$)/g;
+    const sentences = text.match(sentenceRegex) || [];
+    return sentences.slice(0, 4).join('').trim();
+  }
+
+  // Find where the first citation is
+  const citationIndex = citationMatch.index;
+
+  // Get text up to and past the citation, then find the end of that sentence
+  const textUpToCitation = text.substring(0, citationIndex + citationMatch[0].length);
+  const textAfterCitation = text.substring(citationIndex + citationMatch[0].length);
+
+  // Find the end of the sentence after the citation
+  const sentenceEndMatch = textAfterCitation.match(/[^.!?]*[.!?]/);
+  const sentenceEnd = sentenceEndMatch ? sentenceEndMatch[0] : '';
+
+  return (textUpToCitation + sentenceEnd).trim();
+}
+
 // Simple citation renderer - shows citations as styled text (view full page for clickable)
 function TextWithCitations({ text }) {
   if (!text) return null;
@@ -259,20 +286,6 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                   >
                     View on SNPedia
                   </a>
-
-                  {/* Revert button - show if improved */}
-                  {(snp.source === 'claude' || snp.source === 'user') && snp.original_summary && (
-                    <button
-                      onClick={handleRevert}
-                      disabled={revertMutation.isPending}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-all disabled:opacity-50"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                      </svg>
-                      <span>Revert to original</span>
-                    </button>
-                  )}
                 </div>
               )}
 
@@ -334,8 +347,8 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                 </div>
 
                 {snp.summary && (
-                  <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 mb-3">
-                    {snp.summary}
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-2 mb-3">
+                    <TextWithCitations text={getTextUpToFirstCitation(snp.summary)} />
                   </p>
                 )}
 
