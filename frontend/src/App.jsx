@@ -19,6 +19,7 @@ import { ChatPanel } from './components/ChatPanel'
 import DataLogViewer from './components/DataLogViewer'
 import GenomeQuery from './components/GenomeQuery'
 import { SnpFullPage } from './components/SnpFullPage'
+import { LabelFilterPanel } from './components/LabelFilterPanel'
 
 const TABS = {
   DASHBOARD: 'dashboard',
@@ -57,6 +58,7 @@ function AppLayout() {
   const [search, setSearch] = useState('')
   const [selectedCategories, setSelectedCategories] = useState([])
   const [selectedChromosome, setSelectedChromosome] = useState(null)
+  const [selectedLabel, setSelectedLabel] = useState(null)
   const [offset, setOffset] = useState(0)
   const [allResults, setAllResults] = useState([])
 
@@ -85,11 +87,24 @@ function AppLayout() {
     offset,
   }
 
-  const { data, isLoading, isFetching } = useQuery({
+  // Regular SNP search (when no label filter)
+  const { data: regularData, isLoading: regularLoading, isFetching: regularFetching } = useQuery({
     queryKey: ['snps', browseSearchParams],
     queryFn: () => api.searchSnps(browseSearchParams),
-    enabled: activeTab === TABS.BROWSE,
+    enabled: activeTab === TABS.BROWSE && !selectedLabel,
   })
+
+  // Label-filtered search
+  const { data: labelData, isLoading: labelLoading, isFetching: labelFetching } = useQuery({
+    queryKey: ['snps-by-label', selectedLabel, offset],
+    queryFn: () => api.searchByLabel(selectedLabel, 50, offset),
+    enabled: activeTab === TABS.BROWSE && !!selectedLabel,
+  })
+
+  // Use the appropriate data based on whether label is selected
+  const data = selectedLabel ? labelData : regularData
+  const isLoading = selectedLabel ? labelLoading : regularLoading
+  const isFetching = selectedLabel ? labelFetching : regularFetching
 
   // Accumulate results for infinite scroll
   useEffect(() => {
@@ -106,13 +121,39 @@ function AppLayout() {
   useEffect(() => {
     setOffset(0)
     setAllResults([])
-  }, [search, selectedCategories, selectedChromosome])
+  }, [search, selectedCategories, selectedChromosome, selectedLabel])
 
   const handleLoadMore = useCallback(() => {
     if (data?.has_more && !isFetching) {
       setOffset((prev) => prev + 50)
     }
   }, [data?.has_more, isFetching])
+
+  // When selecting a label, clear other filters since they use different queries
+  const handleLabelChange = useCallback((label) => {
+    setSelectedLabel(label)
+    if (label) {
+      setSearch('')
+      setSelectedCategories([])
+      setSelectedChromosome(null)
+    }
+  }, [])
+
+  // Clear label when other filters are used
+  const handleCategoryChange = useCallback((categories) => {
+    setSelectedCategories(categories)
+    if (categories.length > 0) setSelectedLabel(null)
+  }, [])
+
+  const handleChromosomeChange = useCallback((chromosome) => {
+    setSelectedChromosome(chromosome)
+    if (chromosome) setSelectedLabel(null)
+  }, [])
+
+  const handleSearchChange = useCallback((searchText) => {
+    setSearch(searchText)
+    if (searchText) setSelectedLabel(null)
+  }, [])
 
   // Navigation helpers
   const setActiveTab = useCallback((tab) => {
@@ -264,13 +305,17 @@ function AppLayout() {
           {/* Sidebar (for Browse tab) */}
           {activeTab === TABS.BROWSE && (
             <aside className="w-64 flex-shrink-0 space-y-6">
+              <LabelFilterPanel
+                selected={selectedLabel}
+                onChange={handleLabelChange}
+              />
               <CategoryFilter
                 selected={selectedCategories}
-                onChange={setSelectedCategories}
+                onChange={handleCategoryChange}
               />
               <ChromosomeBrowser
                 selected={selectedChromosome}
-                onChange={setSelectedChromosome}
+                onChange={handleChromosomeChange}
               />
             </aside>
           )}
@@ -302,13 +347,14 @@ function AppLayout() {
                 <div className="mb-6">
                   <SearchBar
                     value={search}
-                    onChange={setSearch}
+                    onChange={handleSearchChange}
                     placeholder="Filter by rsid, gene, or keyword..."
                   />
                 </div>
                 {data && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                     {data.total.toLocaleString()} results
+                    {selectedLabel && ` labeled "${selectedLabel}"`}
                     {search && ` for "${search}"`}
                     {selectedChromosome && ` on chromosome ${selectedChromosome}`}
                   </p>

@@ -118,4 +118,21 @@ export const api = {
   getSearchSuggestions: () => fetchApi('/search/suggestions'),
   quickSearch: (category, limit = 20) =>
     fetchApi(`/search/quick/${category}?limit=${limit}`),
+
+  // Genotype Labels
+  getAllLabels: () => fetchApi('/labels'),
+  getLabel: (rsid) => fetchApi(`/labels/${rsid}`),
+  setLabel: (rsid, data) =>
+    fetchApi(`/labels/${rsid}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteLabel: (rsid) => fetchApi(`/labels/${rsid}`, { method: 'DELETE' }),
+  searchByLabel: (label, limit = 50, offset = 0) =>
+    fetchApi(`/labels/snps?label=${encodeURIComponent(label)}&limit=${limit}&offset=${offset}`),
+  getLabelsBatch: (rsids) =>
+    fetchApi('/labels/batch', {
+      method: 'POST',
+      body: JSON.stringify(rsids),
+    }),
 }

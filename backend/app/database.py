@@ -134,11 +134,26 @@ async def init_db():
             )
         """)
 
+        # Genotype labels - classify genotypes as normal, abnormal, rare, etc.
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS genotype_labels (
+                rsid TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                confidence TEXT,
+                population_frequency REAL,
+                notes TEXT,
+                source TEXT DEFAULT 'claude',
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+
         # Create indexes for faster searching
         await db.execute("CREATE INDEX IF NOT EXISTS idx_snps_chromosome ON snps(chromosome)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_annotations_magnitude ON annotations(magnitude)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_annotations_gene ON annotations(gene)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)")
+        await db.execute("CREATE INDEX IF NOT EXISTS idx_genotype_labels_label ON genotype_labels(label)")
 
         await db.commit()
 
@@ -993,3 +1008,112 @@ async def get_data_log_stats() -> dict:
             stats["by_type"] = {row[0]: row[1] for row in rows}
 
         return stats
+
+
+# ============ Genotype Labels ============
+
+async def set_genotype_label(
+    rsid: str,
+    label: str,
+    confidence: str = None,
+    population_frequency: float = None,
+    notes: str = None,
+    source: str = "claude"
+) -> None:
+    """Set or update a genotype label for an SNP."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        now = datetime.now().isoformat()
+        await db.execute("""
+            INSERT INTO genotype_labels (rsid, label, confidence, population_frequency, notes, source, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(rsid) DO UPDATE SET
+                label = excluded.label,
+                confidence = excluded.confidence,
+                population_frequency = excluded.population_frequency,
+                notes = excluded.notes,
+                source = excluded.source,
+                updated_at = excluded.updated_at
+        """, (rsid, label, confidence, population_frequency, notes, source, now, now))
+        await db.commit()
+
+
+async def get_genotype_label(rsid: str) -> Optional[dict]:
+    """Get the genotype label for an SNP."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM genotype_labels WHERE rsid = ?", (rsid,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+
+async def get_genotype_labels_batch(rsids: list[str]) -> dict[str, dict]:
+    """Get genotype labels for multiple SNPs."""
+    if not rsids:
+        return {}
+
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        placeholders = ",".join("?" * len(rsids))
+        query = f"SELECT * FROM genotype_labels WHERE rsid IN ({placeholders})"
+        async with db.execute(query, rsids) as cursor:
+            rows = await cursor.fetchall()
+            return {row["rsid"]: dict(row) for row in rows}
+
+
+async def search_snps_by_label(
+    label: str,
+    limit: int = 50,
+    offset: int = 0
+) -> tuple[list[dict], int]:
+    """Search SNPs by genotype label (normal, abnormal, rare, etc.)."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Get total count
+        async with db.execute(
+            "SELECT COUNT(*) FROM genotype_labels WHERE label = ?",
+            (label,)
+        ) as cursor:
+            total = (await cursor.fetchone())[0]
+
+        # Get results with SNP and annotation data
+        query = """
+            SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   gl.label, gl.confidence, gl.population_frequency, gl.notes as label_notes
+            FROM genotype_labels gl
+            JOIN snps s ON gl.rsid = s.rsid
+            LEFT JOIN annotations a ON gl.rsid = a.rsid
+            WHERE gl.label = ?
+            ORDER BY a.magnitude DESC NULLS LAST
+            LIMIT ? OFFSET ?
+        """
+        async with db.execute(query, (label, limit, offset)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r.get("categories") else []
+                results.append(r)
+            return results, total
+
+
+async def get_all_labels() -> list[dict]:
+    """Get all unique labels with counts."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        query = """
+            SELECT label, COUNT(*) as count
+            FROM genotype_labels
+            GROUP BY label
+            ORDER BY count DESC
+        """
+        async with db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            return [{"label": row[0], "count": row[1]} for row in rows]
+
+
+async def delete_genotype_label(rsid: str) -> bool:
+    """Delete a genotype label."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("DELETE FROM genotype_labels WHERE rsid = ?", (rsid,))
+        await db.commit()
+        return cursor.rowcount > 0

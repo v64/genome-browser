@@ -15,6 +15,7 @@ export function useFavorites() {
       queryClient.invalidateQueries({ queryKey: ['favorites'] })
       queryClient.invalidateQueries({ queryKey: ['snps'] })
       queryClient.invalidateQueries({ queryKey: ['snp', rsid] })
+      queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] })
     },
   })
 
@@ -24,6 +25,7 @@ export function useFavorites() {
       queryClient.invalidateQueries({ queryKey: ['favorites'] })
       queryClient.invalidateQueries({ queryKey: ['snps'] })
       queryClient.invalidateQueries({ queryKey: ['snp', rsid] })
+      queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] })
     },
   })
 

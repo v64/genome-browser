@@ -139,7 +139,7 @@ async def get_user_genotype(rsid: str) -> Optional[dict]:
 
 
 async def interpret_genotype(rsid: str, genotype: str, context: str = "") -> str:
-    """Ask Claude to interpret a specific genotype."""
+    """Ask Claude to interpret a specific genotype and classify it."""
     # Check if we already have an interpretation
     existing = await database.get_annotation(rsid)
     if existing and existing.get("genotype_info", {}).get(genotype):
@@ -150,15 +150,72 @@ async def interpret_genotype(rsid: str, genotype: str, context: str = "") -> str
 {f'Context: {context}' if context else ''}
 
 Be specific about health implications, traits, or other effects.
-If this is a common/normal genotype, say so.
-Keep response to 2-3 sentences."""
+
+IMPORTANT: At the END of your response, add a classification line in this exact format:
+CLASSIFICATION: [label] | [confidence] | [frequency]
+
+Where:
+- label is one of: normal, abnormal, rare, protective, risk, carrier, neutral
+- confidence is one of: high, medium, low
+- frequency is the approximate population percentage if known (e.g., "45%" or "unknown")
+
+Example endings:
+"CLASSIFICATION: normal | high | 45%"
+"CLASSIFICATION: rare | medium | 2%"
+"CLASSIFICATION: risk | high | 15%"
+
+Keep the main interpretation to 2-3 sentences, then add the classification line."""
 
     interpretation = await query_claude(prompt)
 
-    # Save to annotations
-    await save_genotype_interpretation(rsid, genotype, interpretation)
+    # Extract classification from response
+    label_info = extract_genotype_classification(interpretation)
 
-    return interpretation
+    # Clean interpretation (remove the classification line for display)
+    clean_interpretation = re.sub(r'\s*CLASSIFICATION:.*$', '', interpretation, flags=re.IGNORECASE).strip()
+
+    # Save genotype label if extracted
+    if label_info:
+        await database.set_genotype_label(
+            rsid=rsid,
+            label=label_info["label"],
+            confidence=label_info.get("confidence"),
+            population_frequency=label_info.get("frequency"),
+            notes=f"Genotype: {genotype}",
+            source="claude"
+        )
+        log("system", f"Labeled {rsid} ({genotype}) as: {label_info['label']}")
+
+    # Save to annotations
+    await save_genotype_interpretation(rsid, genotype, clean_interpretation)
+
+    return clean_interpretation
+
+
+def extract_genotype_classification(text: str) -> Optional[dict]:
+    """Extract genotype classification from Claude's response."""
+    # Look for CLASSIFICATION: label | confidence | frequency
+    match = re.search(r'CLASSIFICATION:\s*(\w+)\s*\|\s*(\w+)\s*\|\s*([^\n]+)', text, re.IGNORECASE)
+    if match:
+        label = match.group(1).lower().strip()
+        confidence = match.group(2).lower().strip()
+        frequency_str = match.group(3).strip()
+
+        # Parse frequency percentage
+        freq_match = re.search(r'([\d.]+)%', frequency_str)
+        frequency = float(freq_match.group(1)) if freq_match else None
+
+        # Validate label
+        valid_labels = {'normal', 'abnormal', 'rare', 'protective', 'risk', 'carrier', 'neutral'}
+        if label not in valid_labels:
+            label = 'neutral'  # Default
+
+        return {
+            "label": label,
+            "confidence": confidence if confidence in ('high', 'medium', 'low') else 'medium',
+            "frequency": frequency
+        }
+    return None
 
 
 async def save_genotype_interpretation(rsid: str, genotype: str, interpretation: str):

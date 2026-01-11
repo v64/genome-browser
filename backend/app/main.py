@@ -11,7 +11,7 @@ from .genome_parser import parse_23andme_file, find_genome_file
 from .categories import get_all_priority_snps
 from . import snpedia, claude_service
 
-from .routers import snps, categories, sync, favorites, export, chat, knowledge, annotations, search, agent
+from .routers import snps, categories, sync, favorites, export, chat, knowledge, annotations, search, agent, labels
 
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / ".env"
@@ -97,6 +97,7 @@ app.include_router(knowledge.router)
 app.include_router(annotations.router)
 app.include_router(search.router)
 app.include_router(agent.router)
+app.include_router(labels.router)
 
 
 @app.get("/api/health")
