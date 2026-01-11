@@ -19,8 +19,8 @@ export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
               {snp.rsid}
             </h3>
             {snp.gene && (
-              <span className="text-sm text-gray-500 dark:text-gray-400">
-                ({snp.gene})
+              <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded">
+                {snp.gene}
               </span>
             )}
           </div>

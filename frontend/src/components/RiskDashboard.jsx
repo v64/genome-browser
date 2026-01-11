@@ -394,14 +394,12 @@ export function RiskDashboard({ onSnpClick }) {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    <MagnitudeBadge magnitude={snp.magnitude} />
                     <span
-                      className={snp.is_favorite ? "text-amber-500" : "text-gray-400 dark:text-gray-600"}
+                      className={snp.is_favorite ? "text-amber-500 text-lg" : "text-gray-400 dark:text-gray-600 text-lg"}
                       title={snp.is_favorite ? "Favorite" : "Not favorited"}
                     >
                       {snp.is_favorite ? "★" : "☆"}
-                    </span>
-                    <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
-                      {snp.genotype}
                     </span>
                   </div>
                 </div>
@@ -422,7 +420,6 @@ export function RiskDashboard({ onSnpClick }) {
 
                 {/* Badges Row */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <MagnitudeBadge magnitude={snp.magnitude} />
                   <ReputeBadge repute={snp.repute} />
                   {snp.label && <LabelBadge label={snp.label} size="sm" />}
                   {snp.categories?.slice(0, 2).map((cat) => (
@@ -510,42 +507,33 @@ export function RiskDashboard({ onSnpClick }) {
                   'bg-gradient-to-br from-fuchsia-300 to-purple-400'
                 }`} />
 
-                {/* Rarity Label */}
-                <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-xs font-medium ${
-                  snp.magnitude >= 4 ? 'bg-fuchsia-600 text-white' :
-                  snp.magnitude >= 3.5 ? 'bg-fuchsia-500 text-white' :
-                  'bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-700 dark:text-fuchsia-300'
-                }`}>
-                  {snp.rarity_level}
-                </div>
-
                 <div className="relative">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-400 text-lg">
-                      {snp.rsid}
-                    </span>
-                    {snp.gene && (
-                      <span className="px-1.5 py-0.5 bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-300 rounded text-xs font-medium">
-                        {snp.gene}
+                  {/* Header */}
+                  <div className="flex items-start justify-between mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-400 text-lg">
+                        {snp.rsid}
                       </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
-                      {snp.genotype}
-                    </span>
-                    <span
-                      className={snp.is_favorite ? "text-amber-500" : "text-gray-400 dark:text-gray-600"}
-                      title={snp.is_favorite ? "Favorite" : "Not favorited"}
-                    >
-                      {snp.is_favorite ? "★" : "☆"}
-                    </span>
-                    {snp.is_improved && (
-                      <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
-                        ✓ improved
+                      {snp.gene && (
+                        <span className="px-1.5 py-0.5 bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-300 rounded text-xs font-medium">
+                          {snp.gene}
+                        </span>
+                      )}
+                      {snp.is_improved && (
+                        <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
+                          ✓ improved
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <MagnitudeBadge magnitude={snp.magnitude} />
+                      <span
+                        className={snp.is_favorite ? "text-amber-500 text-lg" : "text-gray-400 dark:text-gray-600 text-lg"}
+                        title={snp.is_favorite ? "Favorite" : "Not favorited"}
+                      >
+                        {snp.is_favorite ? "★" : "☆"}
                       </span>
-                    )}
+                    </div>
                   </div>
 
                   {snp.title && (
@@ -561,7 +549,6 @@ export function RiskDashboard({ onSnpClick }) {
                   )}
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    <MagnitudeBadge magnitude={snp.magnitude} />
                     <ReputeBadge repute={snp.repute} />
                     {snp.label && <LabelBadge label={snp.label} size="sm" />}
                     {snp.categories?.slice(0, 2).map((cat) => (

@@ -293,10 +293,17 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
               <div className="card p-4">
                 <div className="flex items-start justify-between">
                   <div className="flex-1 min-w-0">
-                    {/* RS Number */}
-                    <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400 mb-0.5">
-                      {snp.rsid}
-                    </h3>
+                    {/* RS Number + Gene */}
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+                        {snp.rsid}
+                      </h3>
+                      {snp.gene && (
+                        <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded">
+                          {snp.gene}
+                        </span>
+                      )}
+                    </div>
                     {/* Title */}
                     {snp.title && (
                       <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
