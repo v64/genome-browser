@@ -123,9 +123,12 @@ export function RiskDashboard({ onSnpClick }) {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    {snp.is_favorite && (
-                      <span className="text-amber-500" title="Favorite">★</span>
-                    )}
+                    <span
+                      className={snp.is_favorite ? "text-amber-500" : "text-gray-400 dark:text-gray-600"}
+                      title={snp.is_favorite ? "Favorite" : "Not favorited"}
+                    >
+                      {snp.is_favorite ? "★" : "☆"}
+                    </span>
                     <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
                       {snp.genotype}
                     </span>
