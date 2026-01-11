@@ -39,10 +39,18 @@ async def get_chromosomes():
 
 @router.get("/dashboard")
 async def get_dashboard():
-    """Get dashboard data with notable variants."""
-    notable = await database.get_notable_variants(limit=20)
+    """Get dashboard data with most interesting variants based on activity."""
+    # Get SNPs ranked by interest score
+    interesting_snps = await database.get_most_interesting_snps(limit=20)
+
+    # Also get traditional notable variants (high magnitude) for comparison
+    notable = await database.get_notable_variants(limit=10)
+
     total_snps = await database.get_snp_count()
     annotated_snps = await database.get_annotation_count()
+
+    # Get activity stats
+    activity_stats = await database.get_activity_stats()
 
     # Get category counts
     category_counts = {}
@@ -51,8 +59,10 @@ async def get_dashboard():
         category_counts[cat_id] = count
 
     return {
+        "interesting_snps": interesting_snps,
         "notable_variants": notable,
         "category_counts": category_counts,
         "total_snps": total_snps,
-        "annotated_snps": annotated_snps
+        "annotated_snps": annotated_snps,
+        "activity_stats": activity_stats
     }

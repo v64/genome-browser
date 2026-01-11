@@ -1175,3 +1175,160 @@ async def delete_genotype_label(rsid: str) -> bool:
         cursor = await db.execute("DELETE FROM genotype_labels WHERE rsid = ?", (rsid,))
         await db.commit()
         return cursor.rowcount > 0
+
+
+# ============ Interest Scoring ============
+
+async def get_most_interesting_snps(limit: int = 20) -> list[dict]:
+    """
+    Get SNPs ranked by interest score based on user activity and data richness.
+
+    Interest Score Algorithm:
+    - magnitude * 2 (base importance)
+    - +5 if favorite
+    - +3 if has label
+    - +3 if Claude-improved
+    - +0.5 per data log access
+    - +1 per chat mention
+    - +2 per knowledge entry
+    - Recency multiplier for recent activity
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Complex query that calculates interest score
+        query = """
+            WITH
+            -- Count data log accesses per SNP
+            data_log_counts AS (
+                SELECT reference_id as rsid, COUNT(*) as access_count
+                FROM data_log
+                WHERE reference_id IS NOT NULL AND reference_id LIKE 'rs%'
+                GROUP BY reference_id
+            ),
+            -- Count chat mentions per SNP
+            chat_mentions AS (
+                SELECT
+                    json_each.value as rsid,
+                    COUNT(*) as mention_count
+                FROM chat_history, json_each(chat_history.snps_extracted)
+                WHERE snps_extracted IS NOT NULL AND snps_extracted != '[]'
+                GROUP BY json_each.value
+            ),
+            -- Count knowledge entries per SNP
+            knowledge_counts AS (
+                SELECT
+                    json_each.value as rsid,
+                    COUNT(*) as knowledge_count
+                FROM knowledge, json_each(knowledge.snps_mentioned)
+                WHERE snps_mentioned IS NOT NULL AND snps_mentioned != '[]'
+                GROUP BY json_each.value
+            ),
+            -- Get most recent activity timestamp per SNP
+            recent_activity AS (
+                SELECT reference_id as rsid, MAX(created_at) as last_active
+                FROM data_log
+                WHERE reference_id IS NOT NULL AND reference_id LIKE 'rs%'
+                GROUP BY reference_id
+            )
+
+            SELECT
+                s.rsid,
+                s.chromosome,
+                s.position,
+                s.genotype,
+                a.summary,
+                a.magnitude,
+                a.repute,
+                a.gene,
+                a.categories,
+                a.title,
+                a.source as annotation_source,
+                a.improved_at,
+                CASE WHEN f.rsid IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+                CASE WHEN gl.rsid IS NOT NULL THEN 1 ELSE 0 END as has_label,
+                gl.label,
+                COALESCE(dlc.access_count, 0) as access_count,
+                COALESCE(cm.mention_count, 0) as mention_count,
+                COALESCE(kc.knowledge_count, 0) as knowledge_count,
+                ra.last_active,
+                -- Calculate interest score
+                (
+                    COALESCE(a.magnitude, 0) * 2 +
+                    CASE WHEN f.rsid IS NOT NULL THEN 5 ELSE 0 END +
+                    CASE WHEN gl.rsid IS NOT NULL THEN 3 ELSE 0 END +
+                    CASE WHEN a.improved_at IS NOT NULL OR a.source IN ('claude', 'user') THEN 3 ELSE 0 END +
+                    COALESCE(dlc.access_count, 0) * 0.5 +
+                    COALESCE(cm.mention_count, 0) * 1 +
+                    COALESCE(kc.knowledge_count, 0) * 2 +
+                    -- Recency boost: activity in last 24h gets +3, last week +1
+                    CASE
+                        WHEN ra.last_active > datetime('now', '-1 day') THEN 3
+                        WHEN ra.last_active > datetime('now', '-7 days') THEN 1
+                        ELSE 0
+                    END
+                ) as interest_score
+            FROM snps s
+            LEFT JOIN annotations a ON s.rsid = a.rsid
+            LEFT JOIN favorites f ON s.rsid = f.rsid
+            LEFT JOIN genotype_labels gl ON s.rsid = gl.rsid
+            LEFT JOIN data_log_counts dlc ON s.rsid = dlc.rsid
+            LEFT JOIN chat_mentions cm ON s.rsid = cm.rsid
+            LEFT JOIN knowledge_counts kc ON s.rsid = kc.rsid
+            LEFT JOIN recent_activity ra ON s.rsid = ra.rsid
+            WHERE a.rsid IS NOT NULL  -- Must have annotation
+            ORDER BY interest_score DESC, a.magnitude DESC
+            LIMIT ?
+        """
+
+        async with db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["is_improved"] = bool(r.get("improved_at") or r.get("annotation_source") in ("claude", "user"))
+                results.append(r)
+            return results
+
+
+async def get_activity_stats() -> dict:
+    """Get activity statistics for the dashboard."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        stats = {}
+
+        # Total queries made
+        async with db.execute(
+            "SELECT COUNT(*) FROM knowledge WHERE source = 'claude_conversation'"
+        ) as cursor:
+            stats["total_queries"] = (await cursor.fetchone())[0]
+
+        # Total chat messages
+        async with db.execute("SELECT COUNT(*) FROM chat_history") as cursor:
+            stats["total_chat_messages"] = (await cursor.fetchone())[0]
+
+        # SNPs improved by Claude
+        async with db.execute(
+            "SELECT COUNT(*) FROM annotations WHERE improved_at IS NOT NULL OR source IN ('claude', 'user')"
+        ) as cursor:
+            stats["claude_improved_snps"] = (await cursor.fetchone())[0]
+
+        # Labeled SNPs
+        async with db.execute("SELECT COUNT(*) FROM genotype_labels") as cursor:
+            stats["labeled_snps"] = (await cursor.fetchone())[0]
+
+        # Favorite SNPs
+        async with db.execute("SELECT COUNT(*) FROM favorites") as cursor:
+            stats["favorite_snps"] = (await cursor.fetchone())[0]
+
+        # Recent activity (last 7 days)
+        async with db.execute(
+            "SELECT COUNT(*) FROM data_log WHERE created_at > datetime('now', '-7 days')"
+        ) as cursor:
+            stats["recent_activity_count"] = (await cursor.fetchone())[0]
+
+        # Knowledge entries
+        async with db.execute("SELECT COUNT(*) FROM knowledge") as cursor:
+            stats["knowledge_entries"] = (await cursor.fetchone())[0]
+
+        return stats
