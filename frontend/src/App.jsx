@@ -208,8 +208,19 @@ function AppLayout() {
     }
   }, [genomeQueryResults])
 
-  const { toggleFavorite } = useFavorites()
+  const { toggleFavorite: rawToggleFavorite } = useFavorites()
   const chat = useChat()
+
+  // Wrap toggleFavorite to also update local allResults state
+  const toggleFavorite = (rsid, isFavorite) => {
+    rawToggleFavorite(rsid, isFavorite)
+    // Immediately update local state for responsive UI
+    setAllResults((prev) =>
+      prev.map((snp) =>
+        snp.rsid === rsid ? { ...snp, is_favorite: !isFavorite } : snp
+      )
+    )
+  }
 
   // Check if Claude is configured
   const { data: chatStatus } = useQuery({

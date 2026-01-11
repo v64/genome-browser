@@ -9,24 +9,23 @@ export function useFavorites() {
     queryFn: api.getFavorites,
   })
 
+  const invalidateAllSnpQueries = (rsid) => {
+    queryClient.invalidateQueries({ queryKey: ['favorites'] })
+    queryClient.invalidateQueries({ queryKey: ['snps'] })
+    queryClient.invalidateQueries({ queryKey: ['snps-by-label'] })
+    queryClient.invalidateQueries({ queryKey: ['snp', rsid] })
+    queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] })
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+  }
+
   const addMutation = useMutation({
     mutationFn: api.addFavorite,
-    onSuccess: (_, rsid) => {
-      queryClient.invalidateQueries({ queryKey: ['favorites'] })
-      queryClient.invalidateQueries({ queryKey: ['snps'] })
-      queryClient.invalidateQueries({ queryKey: ['snp', rsid] })
-      queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] })
-    },
+    onSuccess: (_, rsid) => invalidateAllSnpQueries(rsid),
   })
 
   const removeMutation = useMutation({
     mutationFn: api.removeFavorite,
-    onSuccess: (_, rsid) => {
-      queryClient.invalidateQueries({ queryKey: ['favorites'] })
-      queryClient.invalidateQueries({ queryKey: ['snps'] })
-      queryClient.invalidateQueries({ queryKey: ['snp', rsid] })
-      queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] })
-    },
+    onSuccess: (_, rsid) => invalidateAllSnpQueries(rsid),
   })
 
   const toggleFavorite = (rsid, isFavorite) => {
