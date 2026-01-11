@@ -220,10 +220,35 @@ def extract_genotype_classification(text: str) -> Optional[dict]:
 
 async def save_genotype_interpretation(rsid: str, genotype: str, interpretation: str):
     """Save a genotype interpretation to the database."""
-    existing = await database.get_annotation(rsid) or {}
+    from . import snpedia
 
+    existing = await database.get_annotation(rsid) or {}
     genotype_info = existing.get("genotype_info", {})
-    genotype_key = genotype.replace(";", "").upper()
+
+    # Determine the correct genotype key to use
+    # If existing annotations use different alleles (opposite strand), convert
+    raw_gt = genotype.replace(";", "").upper()
+    genotype_key = raw_gt
+
+    if genotype_info:
+        # Check if we need to use the complement strand
+        _, matched_gt = snpedia.get_genotype_interpretation(genotype_info, raw_gt)
+        if matched_gt and matched_gt != raw_gt:
+            # Use the matched genotype (which is on the correct strand)
+            genotype_key = matched_gt
+        elif matched_gt is None:
+            # No match found, check if complement alleles match existing alleles
+            comp_gt = snpedia.complement_genotype(raw_gt)
+            existing_alleles = set()
+            for gt in genotype_info.keys():
+                existing_alleles.update(gt.upper())
+            comp_alleles = set(comp_gt.upper())
+            raw_alleles = set(raw_gt.upper())
+
+            # If complement alleles overlap with existing but raw don't, use complement
+            if comp_alleles & existing_alleles and not (raw_alleles & existing_alleles):
+                genotype_key = comp_gt
+
     genotype_info[genotype_key] = interpretation
 
     existing["genotype_info"] = genotype_info

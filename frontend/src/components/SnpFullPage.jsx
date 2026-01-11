@@ -5,6 +5,7 @@ import { useFavorites } from '../hooks/useFavorites';
 import ReactMarkdown from 'react-markdown';
 import { MagnitudeBadge } from './MagnitudeBadge';
 import { ReputeBadge } from './ReputeBadge';
+import { LabelBadge } from './LabelBadge';
 
 // Parse text containing [cite:ID] citations and render as clickable links
 function CitedText({ text, onCiteClick }) {
@@ -444,6 +445,13 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
     retry: 1,
   });
 
+  // Fetch genotype label
+  const { data: labelData } = useQuery({
+    queryKey: ['label', rsid],
+    queryFn: () => api.getLabel(rsid),
+    enabled: !!rsid,
+  });
+
   const improveMutation = useMutation({
     mutationFn: (rsid) => api.improveAnnotation(rsid, true),
     onSuccess: () => {
@@ -659,8 +667,17 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
         {/* Data */}
         {data && !isLoading && !error && (
           <div className="space-y-6">
-            {/* Location & Importance - inline */}
-            <div className="flex items-center gap-6 text-sm">
+            {/* Genotype, Location & Importance - inline */}
+            <div className="flex items-center gap-6 text-sm flex-wrap">
+              <span className="flex items-center gap-2">
+                <span className="text-gray-500">Genotype:</span>
+                <span className="font-mono font-bold text-white text-lg">{data.matched_genotype || data.genotype}</span>
+                {labelData?.label && <LabelBadge label={labelData.label} size="sm" />}
+                {data.matched_genotype && data.matched_genotype !== data.genotype && (
+                  <span className="text-gray-500 text-xs">(23andMe: {data.genotype})</span>
+                )}
+              </span>
+              <span className="text-gray-600">|</span>
               <span className="text-gray-400">
                 <span className="text-gray-500">Location:</span>{' '}
                 <span className="text-white">Chr {data.chromosome || '?'}</span>{' '}
@@ -780,6 +797,9 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
                                 <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
                                   Your genotype
                                 </span>
+                              )}
+                              {isYours && labelData?.label && (
+                                <LabelBadge label={labelData.label} size="sm" />
                               )}
                             </div>
                             {!isEditing && (

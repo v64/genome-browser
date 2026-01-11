@@ -376,7 +376,7 @@ function AppLayout() {
             )}
 
             {activeTab === TABS.DATA && (
-              <DataLogViewer />
+              <DataLogViewer onSnpClick={handleSnpClick} />
             )}
 
             {activeTab === TABS.FAVORITES && (

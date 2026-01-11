@@ -339,6 +339,9 @@ def get_genotype_interpretation(genotype_info: dict, user_genotype: str) -> tupl
     """
     Find the interpretation for a user's genotype, handling strand differences.
     Returns (interpretation, matched_genotype) or (None, None) if not found.
+
+    matched_genotype is the genotype converted to the strand used in annotations,
+    even if there's no exact interpretation for that specific genotype.
     """
     if not genotype_info or not user_genotype:
         return None, None
@@ -364,6 +367,26 @@ def get_genotype_interpretation(genotype_info: dict, user_genotype: str) -> tupl
     user_gt_comp_rev = user_gt_comp[::-1]
     if user_gt_comp_rev in genotype_info:
         return genotype_info[user_gt_comp_rev], user_gt_comp_rev
+
+    # No exact match found - but check if we need to convert to complement strand
+    # by looking at what alleles are used in genotype_info
+    if genotype_info:
+        # Get all alleles used in genotype_info keys
+        annotation_alleles = set()
+        for gt in genotype_info.keys():
+            annotation_alleles.update(gt.upper())
+
+        user_alleles = set(user_gt.upper())
+        comp_alleles = set(user_gt_comp.upper())
+
+        # If user's alleles don't overlap with annotation alleles,
+        # but complement alleles do, use the complement
+        user_overlap = bool(user_alleles & annotation_alleles)
+        comp_overlap = bool(comp_alleles & annotation_alleles)
+
+        if not user_overlap and comp_overlap:
+            # User's genotype is on opposite strand - return complement
+            return None, user_gt_comp
 
     return None, None
 

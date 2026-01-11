@@ -4,6 +4,7 @@ import json
 from anthropic import Anthropic
 from typing import Optional
 from . import database
+from . import snpedia
 
 # Initialize client (will use ANTHROPIC_API_KEY env var)
 client: Optional[Anthropic] = None
@@ -46,8 +47,21 @@ When listing multiple SNPs related to a trait, format them as a clear list."""
 
 
 def format_snp_context(snp_data: dict) -> str:
-    """Format SNP data for Claude context."""
-    parts = [f"**{snp_data['rsid']}** (Your genotype: {snp_data['genotype']})"]
+    """Format SNP data for Claude context, handling strand conversion."""
+    raw_genotype = snp_data.get('genotype', '')
+    genotype_info = snp_data.get("genotype_info", {})
+
+    # Detect strand conversion needed
+    display_genotype = raw_genotype
+    strand_note = ""
+
+    if genotype_info:
+        _, matched_gt = snpedia.get_genotype_interpretation(genotype_info, raw_genotype)
+        if matched_gt and matched_gt != raw_genotype:
+            display_genotype = matched_gt
+            strand_note = f" (23andMe reports: {raw_genotype} on opposite strand)"
+
+    parts = [f"**{snp_data['rsid']}** (Your genotype: {display_genotype}{strand_note})"]
 
     if snp_data.get("gene"):
         parts.append(f"Gene: {snp_data['gene']}")
@@ -64,10 +78,10 @@ def format_snp_context(snp_data: dict) -> str:
     if snp_data.get("repute"):
         parts.append(f"Effect: {snp_data['repute']}")
 
-    if snp_data.get("genotype_info"):
+    if genotype_info:
         parts.append("Genotype interpretations:")
-        for gt, info in snp_data["genotype_info"].items():
-            is_yours = "(YOUR GENOTYPE)" if gt == snp_data["genotype"] else ""
+        for gt, info in genotype_info.items():
+            is_yours = "(YOUR GENOTYPE)" if gt == display_genotype else ""
             parts.append(f"  - {gt} {is_yours}: {info}")
 
     if snp_data.get("categories"):
@@ -207,6 +221,29 @@ async def improve_annotation(rsid: str, genotype: str) -> dict:
     if not snp_data:
         return {"error": f"SNP {rsid} not found"}
 
+    # Detect strand conversion
+    genotype_info = snp_data.get("genotype_info", {})
+    raw_genotype = snp_data.get("genotype", genotype)
+    display_genotype = raw_genotype
+    alleles_to_use = None
+    strand_instruction = ""
+
+    if genotype_info:
+        _, matched_gt = snpedia.get_genotype_interpretation(genotype_info, raw_genotype)
+        if matched_gt and matched_gt != raw_genotype:
+            display_genotype = matched_gt
+            # Determine which alleles are being used in existing annotations
+            existing_alleles = set()
+            for gt in genotype_info.keys():
+                existing_alleles.update(gt.upper())
+            alleles_to_use = '/'.join(sorted(existing_alleles))
+            strand_instruction = f"""
+IMPORTANT STRAND NOTE: The user's 23andMe data reports genotype "{raw_genotype}", but this SNP's annotations use the opposite strand with alleles {alleles_to_use}.
+The user's converted genotype is "{display_genotype}".
+You MUST use {alleles_to_use} alleles for ALL genotype_info keys (e.g., {', '.join(sorted(existing_alleles) + sorted(existing_alleles)[:1])} combinations like {''.join(sorted(existing_alleles))}, {''.join([sorted(existing_alleles)[0]]*2)}, {''.join([sorted(existing_alleles)[-1]]*2)}).
+DO NOT use A/G alleles if the annotations use C/T alleles, and vice versa.
+"""
+
     current_context = format_snp_context(snp_data)
 
     # Gather ALL context about this SNP
@@ -283,8 +320,15 @@ Content: {str(content)[:1500]}
     # Build the comprehensive prompt
     all_context = "\n---\n".join(context_parts) if context_parts else "No additional context available."
 
-    message = f"""I have this SNP ({rsid}) and I want you to create a COMPREHENSIVE summary that synthesizes ALL the information we have about it.
+    # Determine example genotypes based on alleles in use
+    if alleles_to_use:
+        allele_list = sorted(existing_alleles)
+        example_genotypes = f'"{allele_list[0]}{allele_list[0]}", "{allele_list[0]}{allele_list[1]}", "{allele_list[1]}{allele_list[1]}"'
+    else:
+        example_genotypes = '"AA", "AG", "GG"'
 
+    message = f"""I have this SNP ({rsid}) and I want you to create a COMPREHENSIVE summary that synthesizes ALL the information we have about it.
+{strand_instruction}
 **Current SNPedia annotation:**
 {current_context}
 
@@ -302,11 +346,11 @@ Return your response as JSON with this exact format:
 {{
     "summary": "Your comprehensive summary here with [cite:knowledge_123] inline citations",
     "genotype_info": {{
-        "AA": "Comprehensive explanation with [cite:chat_history] citations",
-        "AG": "Explanation with citations",
-        "GG": "Explanation with citations"
+        {example_genotypes.replace('"', '')}: "Use the correct alleles shown in the existing annotations"
     }}
 }}
+
+CRITICAL: Use ONLY the alleles that appear in the existing genotype annotations (check the genotype_info keys above). If the annotations use C/T alleles, your genotype_info keys MUST be CC, CT, TT - NOT AA, AG, GG. The user's genotype to highlight is: {display_genotype}
 
 Only include genotypes that are actually relevant for this SNP. Make the language accessible but thorough. The goal is for this summary to be the definitive reference for everything we know about this SNP."""
 

@@ -3,6 +3,35 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api/client'
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
+import { LabelBadge } from './LabelBadge'
+
+// Simple citation renderer - shows citations as styled text (view full page for clickable)
+function TextWithCitations({ text }) {
+  if (!text) return null;
+
+  // Split text by citation pattern [cite:...]
+  const parts = text.split(/(\[cite:[^\]]+\])/g);
+
+  return (
+    <span>
+      {parts.map((part, idx) => {
+        const citeMatch = part.match(/\[cite:([^\]]+)\]/);
+        if (citeMatch) {
+          return (
+            <span
+              key={idx}
+              className="inline-flex items-center px-1 mx-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded text-xs"
+              title="View full page for source details"
+            >
+              [{citeMatch[1].replace(/_/g, ' ').replace(/^(knowledge|datalog|chat)/, '')}]
+            </span>
+          );
+        }
+        return <span key={idx}>{part}</span>;
+      })}
+    </span>
+  );
+}
 
 export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, onViewFullPage }) {
   const queryClient = useQueryClient()
@@ -14,6 +43,13 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
   const { data: snp, isLoading, error } = useQuery({
     queryKey: ['snp', rsid],
     queryFn: () => api.getSnp(rsid),
+    enabled: !!rsid,
+  })
+
+  // Fetch genotype label
+  const { data: labelData } = useQuery({
+    queryKey: ['label', rsid],
+    queryFn: () => api.getLabel(rsid),
     enabled: !!rsid,
   })
 
@@ -236,11 +272,14 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                 </h3>
                 <div className="flex items-center gap-4">
                   <span className="text-3xl font-mono font-bold text-gray-900 dark:text-white">
-                    {snp.genotype}
+                    {snp.matched_genotype || snp.genotype}
                   </span>
+                  {labelData?.label && (
+                    <LabelBadge label={labelData.label} size="md" />
+                  )}
                   {snp.matched_genotype && snp.matched_genotype !== snp.genotype && (
                     <span className="text-sm text-gray-500 dark:text-gray-400">
-                      (= {snp.matched_genotype} on opposite strand)
+                      (23andMe reports {snp.genotype} on opposite strand)
                     </span>
                   )}
                   <button
@@ -273,7 +312,7 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                       What this means for you:
                     </p>
                     <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                      {snp.your_interpretation}
+                      <TextWithCitations text={snp.your_interpretation} />
                     </p>
                   </div>
                 )}
@@ -352,7 +391,7 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                     />
                   ) : (
                     <p className="text-gray-700 dark:text-gray-300">
-                      {snp.summary}
+                      <TextWithCitations text={snp.summary} />
                     </p>
                   )}
                 </div>
@@ -395,7 +434,7 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                             />
                           ) : (
                             <p className="text-sm mt-1 text-gray-600 dark:text-gray-300">
-                              {info}
+                              <TextWithCitations text={info} />
                             </p>
                           )}
                         </div>

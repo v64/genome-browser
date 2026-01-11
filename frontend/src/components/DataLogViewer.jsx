@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-export default function DataLogViewer() {
+export default function DataLogViewer({ onSnpClick }) {
   const [entries, setEntries] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -230,12 +230,16 @@ export default function DataLogViewer() {
                       {msg.snps_extracted && msg.snps_extracted.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {msg.snps_extracted.slice(0, 5).map((snp) => (
-                            <span
+                            <button
                               key={snp}
-                              className="px-1.5 py-0.5 bg-purple-900/50 text-purple-300 rounded text-xs font-mono"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSnpClick?.(snp);
+                              }}
+                              className="px-1.5 py-0.5 bg-purple-900/50 text-purple-300 rounded text-xs font-mono hover:bg-purple-800/70 transition-colors cursor-pointer"
                             >
                               {snp}
-                            </span>
+                            </button>
                           ))}
                           {msg.snps_extracted.length > 5 && (
                             <span className="text-xs opacity-60">
@@ -375,7 +379,15 @@ export default function DataLogViewer() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       {entry.reference_id && (
-                        <span className="text-sm font-mono text-blue-400">{entry.reference_id}</span>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSnpClick?.(entry.reference_id);
+                          }}
+                          className="text-sm font-mono text-blue-400 hover:text-blue-300 hover:underline cursor-pointer"
+                        >
+                          {entry.reference_id}
+                        </button>
                       )}
                       <span className="text-xs text-gray-500">
                         {new Date(entry.created_at).toLocaleString()}
