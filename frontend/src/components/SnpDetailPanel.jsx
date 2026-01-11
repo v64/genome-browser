@@ -23,7 +23,7 @@ function TextWithCitations({ text }) {
               className="inline-flex items-center px-1 mx-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded text-xs"
               title="View full page for source details"
             >
-              [{citeMatch[1].replace(/_/g, ' ').replace(/^(knowledge|datalog|chat)/, '')}]
+              [{citeMatch[1].replace(/^(knowledge_|datalog_|chat_?)/, '')}]
             </span>
           );
         }
@@ -39,6 +39,7 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
   const [editing, setEditing] = useState(false)
   const [editedSummary, setEditedSummary] = useState('')
   const [editedGenotypes, setEditedGenotypes] = useState({})
+  const [showAllCategories, setShowAllCategories] = useState(false)
 
   const { data: snp, isLoading, error } = useQuery({
     queryKey: ['snp', rsid],
@@ -60,6 +61,11 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
       setEditedGenotypes(snp.genotype_info || {})
     }
   }, [snp])
+
+  // Reset category expansion when switching SNPs
+  useEffect(() => {
+    setShowAllCategories(false)
+  }, [rsid])
 
   const explainMutation = useMutation({
     mutationFn: (rsid) => api.explainSnp(rsid),
@@ -270,45 +276,108 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                 </div>
               )}
 
+              {/* Gene Card - Summary view like browse results */}
+              <div className="card p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    {/* RS Number */}
+                    <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400 mb-0.5">
+                      {snp.rsid}
+                    </h3>
+                    {/* Title */}
+                    {snp.title && (
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        {snp.title}
+                      </p>
+                    )}
+                    {/* Chr • Position • Genotype */}
+                    <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                      <span>Chr {snp.chromosome}</span>
+                      <span>•</span>
+                      <span>{snp.position?.toLocaleString()}</span>
+                      <span>•</span>
+                      <span className="font-mono font-semibold text-gray-700 dark:text-gray-300">
+                        {snp.matched_genotype || snp.genotype}
+                      </span>
+                    </div>
+                  </div>
+                  {/* Magnitude + Star */}
+                  <div className="flex items-center gap-2">
+                    {snp.magnitude !== null && snp.magnitude !== undefined && (
+                      <div className="flex items-center gap-1">
+                        <MagnitudeBadge magnitude={snp.magnitude} />
+                      </div>
+                    )}
+                    <button
+                      onClick={() => onToggleFavorite?.(snp.rsid, snp.is_favorite)}
+                      className={`p-1.5 rounded-full transition-colors ${
+                        snp.is_favorite
+                          ? 'text-yellow-500 hover:text-yellow-600'
+                          : 'text-gray-300 hover:text-yellow-500 dark:text-gray-600'
+                      }`}
+                    >
+                      <svg
+                        className="w-5 h-5"
+                        fill={snp.is_favorite ? 'currentColor' : 'none'}
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                {snp.summary && (
+                  <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 mb-3">
+                    {snp.summary}
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <ReputeBadge repute={snp.repute} />
+                  {labelData?.label && (
+                    <LabelBadge label={labelData.label} size="sm" />
+                  )}
+                  {(showAllCategories ? snp.categories : snp.categories?.slice(0, 3))?.map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => onTagClick?.(cat)}
+                      className="badge badge-category capitalize hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors cursor-pointer"
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                  {snp.categories?.length > 3 && (
+                    <button
+                      onClick={() => setShowAllCategories(!showAllCategories)}
+                      className="text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      {showAllCategories ? 'less' : `+${snp.categories.length - 3} more`}
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Your Genotype */}
               <div className="card p-4">
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-                  Your Genotype
-                </h3>
-                <div className="flex items-center gap-4">
-                  <span className="text-3xl font-mono font-bold text-gray-900 dark:text-white">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                    Your Genotype
+                  </h3>
+                  <span className="text-2xl font-mono font-bold text-gray-900 dark:text-white">
                     {snp.matched_genotype || snp.genotype}
                   </span>
-                  {labelData?.label && (
-                    <LabelBadge label={labelData.label} size="md" />
-                  )}
                   {snp.matched_genotype && snp.matched_genotype !== snp.genotype && (
                     <span className="text-sm text-gray-500 dark:text-gray-400">
                       (23andMe reports {snp.genotype} on opposite strand)
                     </span>
                   )}
-                  <button
-                    onClick={() => onToggleFavorite?.(snp.rsid, snp.is_favorite)}
-                    className={`p-2 rounded-full transition-colors ${
-                      snp.is_favorite
-                        ? 'text-yellow-500 bg-yellow-50 dark:bg-yellow-900/20'
-                        : 'text-gray-400 hover:text-yellow-500 hover:bg-yellow-50 dark:hover:bg-yellow-900/20'
-                    }`}
-                  >
-                    <svg
-                      className="w-6 h-6"
-                      fill={snp.is_favorite ? 'currentColor' : 'none'}
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
-                      />
-                    </svg>
-                  </button>
                 </div>
 
                 {snp.your_interpretation && (
@@ -322,58 +391,6 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                   </div>
                 )}
               </div>
-
-              {/* Location */}
-              <div>
-                <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-                  Location
-                </h3>
-                <p className="text-gray-900 dark:text-white">
-                  Chromosome {snp.chromosome} at position {snp.position?.toLocaleString()}
-                </p>
-              </div>
-
-              {/* Magnitude & Repute */}
-              {(snp.magnitude !== null || snp.repute) && (
-                <div className="flex items-center gap-4">
-                  {snp.magnitude !== null && (
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-                        Importance
-                      </h3>
-                      <MagnitudeBadge magnitude={snp.magnitude} />
-                    </div>
-                  )}
-                  {snp.repute && (
-                    <div>
-                      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-                        Effect
-                      </h3>
-                      <ReputeBadge repute={snp.repute} />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Categories */}
-              {snp.categories?.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-                    Categories
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {snp.categories.map((cat) => (
-                      <button
-                        key={cat}
-                        onClick={() => onTagClick?.(cat)}
-                        className="badge badge-category capitalize hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors cursor-pointer"
-                      >
-                        {cat}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* Summary - Editable */}
               {(snp.summary || editing) && (
