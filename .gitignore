@@ -1,0 +1,7 @@
+.claude/
+.env
+data/
+genome*.txt
+backend/.venv/
+frontend/node_modules/
+frontend/dist/

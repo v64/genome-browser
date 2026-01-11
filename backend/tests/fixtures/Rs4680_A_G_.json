@@ -1,0 +1,9 @@
+{
+  "parse": {
+    "title": "Rs4680(A;G)",
+    "pageid": 17153,
+    "wikitext": {
+      "*": "{{Genotype\n|rsid=4680\n|allele1=A\n|allele2=G\n|summary=Intermediate dopamine levels, other effects\n}}\nAs is often the case with heterozygotes, shares [[rs4680|many traits]] intermediately between the (A;A) and (G;G) homozygotes.\n\nSpecific (A;G) findings include:\n\n{{PMID Auto\n|PMID=19474754\n|Title=\"The AG genotype of catechol-O-methyltransferase rs4680 [was] significantly associated with bodyweight gain during antidepressive treatment, when adjusted for age and sex.\"\n}}\n\n{{PMID Auto\n|PMID=20488458\n|Title=A potential for a small protective effect against schizophrenia due to moderate dopamine levels compared to the homozygous (A;A) and (G;G), which have much higher and much lower dopaminergic signaling respectively, both of which have been associated with a higher propensity for schizophrenia.\n}}"
+    }
+  }
+}

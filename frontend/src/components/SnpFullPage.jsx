@@ -1,0 +1,746 @@
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { api } from '../api/client';
+import { useFavorites } from '../hooks/useFavorites';
+import ReactMarkdown from 'react-markdown';
+import { MagnitudeBadge } from './MagnitudeBadge';
+import { ReputeBadge } from './ReputeBadge';
+
+// Modal component for viewing full content
+function ContentModal({ isOpen, onClose, title, children }) {
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    if (isOpen) {
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-gray-800 rounded-lg border border-gray-600 max-w-3xl w-full max-h-[80vh] overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-gray-700 rounded-full transition-colors"
+          >
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="p-4 overflow-y-auto flex-1">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Chat-style conversation display
+function ConversationView({ messages }) {
+  if (!messages || messages.length === 0) {
+    return <p className="text-gray-500">No messages</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {messages.map((msg, idx) => (
+        <div
+          key={idx}
+          className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+        >
+          <div
+            className={`max-w-[80%] p-3 rounded-lg ${
+              msg.role === 'user'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-700 text-gray-200'
+            }`}
+          >
+            <div className="text-xs text-gray-400 mb-1">
+              {msg.role === 'user' ? 'You' : 'Claude'}
+            </div>
+            <div className="prose prose-sm prose-invert max-w-none">
+              <ReactMarkdown>{msg.content || ''}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Knowledge entry view with markdown - renders JSON conversations properly
+function KnowledgeView({ entry }) {
+  // Try to parse response - extract actual Claude response from JSON if needed
+  const parseResponse = () => {
+    if (!entry.response) return { text: '' };
+
+    try {
+      const parsed = JSON.parse(entry.response);
+
+      // Check for claude_response field (search results format)
+      if (parsed.claude_response) {
+        return { text: parsed.claude_response };
+      }
+
+      // Check if it's an array of messages
+      if (Array.isArray(parsed)) {
+        return { messages: parsed };
+      }
+
+      // Check if it has conversation-like structure
+      if (parsed.messages && Array.isArray(parsed.messages)) {
+        return { messages: parsed.messages };
+      }
+
+      // Check for response/answer fields
+      if (parsed.response || parsed.answer) {
+        return { text: parsed.response || parsed.answer };
+      }
+
+      // If it's some other JSON, just stringify it nicely as fallback
+      return { text: entry.response };
+    } catch {
+      // Not JSON, use as plain text
+      return { text: entry.response };
+    }
+  };
+
+  const convoData = parseResponse();
+
+  return (
+    <div className="space-y-4">
+      {/* Query as user message */}
+      <div className="flex justify-end">
+        <div className="max-w-[85%] p-3 rounded-lg bg-blue-600 text-white">
+          <div className="text-xs text-blue-200 mb-1">You</div>
+          <p>{entry.query}</p>
+        </div>
+      </div>
+
+      {/* Response - either as conversation or markdown */}
+      {convoData?.messages ? (
+        <div className="space-y-3">
+          {convoData.messages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[85%] p-3 rounded-lg ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-200'
+                }`}
+              >
+                <div className="text-xs text-gray-400 mb-1">
+                  {msg.role === 'user' ? 'You' : 'Claude'}
+                </div>
+                <div className="prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown>{msg.content || ''}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex justify-start">
+          <div className="max-w-[85%] p-3 rounded-lg bg-gray-700 text-gray-200">
+            <div className="text-xs text-gray-400 mb-1">Claude</div>
+            <div className="prose prose-sm prose-invert max-w-none">
+              <ReactMarkdown>{convoData?.text || ''}</ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-4 text-xs text-gray-500 pt-2 border-t border-gray-700">
+        <span>Source: {entry.source}</span>
+        <span>{new Date(entry.created_at).toLocaleString()}</span>
+      </div>
+    </div>
+  );
+}
+
+// Data log entry view - interprets SNPedia wikitext and renders conversations
+function DataLogView({ entry }) {
+  const isSnpediaRaw = entry.data_type === 'main_page' || entry.data_type === 'genotype_page';
+  const isConversationType = entry.data_type === 'conversation' || entry.data_type === 'interpretation' ||
+                             entry.data_type === 'search_query' || entry.data_type === 'gene_interpretation';
+
+  // Parse SNPedia wikitext to human readable
+  const interpretWikitext = (wikitext) => {
+    if (!wikitext) return 'No content';
+
+    // Remove wiki markup
+    let text = wikitext
+      .replace(/\{\{[^}]+\}\}/g, '') // Remove templates
+      .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2') // [[link|text]] -> text
+      .replace(/\[\[([^\]]+)\]\]/g, '$1') // [[link]] -> link
+      .replace(/'''([^']+)'''/g, '$1') // bold
+      .replace(/''([^']+)''/g, '$1') // italic
+      .replace(/==+([^=]+)==+/g, '\n**$1**\n') // headers
+      .replace(/<ref[^>]*>.*?<\/ref>/gs, '') // remove refs
+      .replace(/<[^>]+>/g, '') // remove other HTML
+      .trim();
+
+    return text || 'No interpretable content';
+  };
+
+  // Try to parse JSON content for conversation display
+  const parseConversationContent = () => {
+    // Check if metadata has question/response
+    if (entry.metadata?.question || entry.metadata?.response) {
+      return {
+        question: entry.metadata.question || entry.metadata.query,
+        response: entry.metadata.response || entry.content
+      };
+    }
+
+    // Try to parse content as JSON
+    try {
+      const parsed = JSON.parse(entry.content);
+      if (parsed.question || parsed.query || parsed.response) {
+        return {
+          question: parsed.question || parsed.query,
+          response: parsed.response || parsed.answer
+        };
+      }
+      // If it's an array of messages
+      if (Array.isArray(parsed)) {
+        return { messages: parsed };
+      }
+    } catch {
+      // Not JSON, use content as response
+    }
+
+    // For interpretation type, the content is the response
+    if (entry.data_type === 'interpretation' || entry.data_type === 'gene_interpretation') {
+      return {
+        question: entry.metadata?.rsid ? `What does ${entry.metadata.rsid} mean?` : 'SNP Interpretation',
+        response: entry.content
+      };
+    }
+
+    return null;
+  };
+
+  const convoData = isConversationType ? parseConversationContent() : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="px-2 py-0.5 bg-purple-900/50 text-purple-300 rounded">{entry.source}</span>
+        <span className="px-2 py-0.5 bg-gray-700 text-gray-300 rounded">{entry.data_type}</span>
+        <span className="text-gray-500">{new Date(entry.created_at).toLocaleString()}</span>
+      </div>
+
+      {/* Conversation-style display */}
+      {convoData && convoData.messages ? (
+        <div className="space-y-3">
+          {convoData.messages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div
+                className={`max-w-[80%] p-3 rounded-lg ${
+                  msg.role === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-700 text-gray-200'
+                }`}
+              >
+                <div className="text-xs text-gray-400 mb-1">
+                  {msg.role === 'user' ? 'You' : 'Claude'}
+                </div>
+                <div className="prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown>{msg.content || ''}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : convoData && (convoData.question || convoData.response) ? (
+        <div className="space-y-3">
+          {convoData.question && (
+            <div className="flex justify-end">
+              <div className="max-w-[80%] p-3 rounded-lg bg-blue-600 text-white">
+                <div className="text-xs text-blue-200 mb-1">You</div>
+                <p>{convoData.question}</p>
+              </div>
+            </div>
+          )}
+          {convoData.response && (
+            <div className="flex justify-start">
+              <div className="max-w-[80%] p-3 rounded-lg bg-gray-700 text-gray-200">
+                <div className="text-xs text-gray-400 mb-1">Claude</div>
+                <div className="prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown>{convoData.response}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : isSnpediaRaw ? (
+        <div>
+          <h4 className="text-sm font-medium text-gray-400 mb-2">Interpreted Content</h4>
+          <div className="prose prose-sm prose-invert max-w-none bg-gray-700/50 p-4 rounded">
+            <ReactMarkdown>{interpretWikitext(entry.content)}</ReactMarkdown>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h4 className="text-sm font-medium text-gray-400 mb-2">Content</h4>
+          <div className="prose prose-sm prose-invert max-w-none">
+            <ReactMarkdown>{entry.content || 'No content'}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+
+      {entry.metadata && Object.keys(entry.metadata).length > 0 && !convoData && (
+        <div>
+          <h4 className="text-sm font-medium text-gray-400 mb-1">Metadata</h4>
+          <pre className="text-xs text-gray-400 bg-gray-700/50 p-2 rounded overflow-x-auto">
+            {JSON.stringify(entry.metadata, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SnpFullPage({ rsid, onClose }) {
+  const queryClient = useQueryClient();
+  const { toggleFavorite } = useFavorites();
+  const [improving, setImproving] = useState(false);
+
+  // Modal states
+  const [selectedConvo, setSelectedConvo] = useState(null);
+  const [selectedKnowledge, setSelectedKnowledge] = useState(null);
+  const [selectedDataLog, setSelectedDataLog] = useState(null);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && !selectedConvo && !selectedKnowledge && !selectedDataLog) {
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, selectedConvo, selectedKnowledge, selectedDataLog]);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['snp-full', rsid],
+    queryFn: async () => {
+      try {
+        const result = await api.getSnpFull(rsid);
+        return result;
+      } catch (e) {
+        console.error('SnpFullPage API error:', e);
+        throw e;
+      }
+    },
+    enabled: !!rsid,
+    retry: 1,
+  });
+
+  const improveMutation = useMutation({
+    mutationFn: (rsid) => api.improveAnnotation(rsid, true),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] });
+      queryClient.invalidateQueries({ queryKey: ['snp', rsid] });
+      setImproving(false);
+    },
+    onError: (err) => {
+      console.error('Improve error:', err);
+      setImproving(false);
+    },
+  });
+
+  const handleImprove = () => {
+    setImproving(true);
+    improveMutation.mutate(rsid);
+  };
+
+  if (!rsid) {
+    return (
+      <div className="fixed inset-0 bg-gray-900 z-50 flex items-center justify-center">
+        <div className="text-white">No SNP selected</div>
+      </div>
+    );
+  }
+
+  const getSourceColor = (source) => {
+    switch (source) {
+      case 'snpedia': return 'bg-green-900/50 text-green-300';
+      case 'claude': return 'bg-purple-900/50 text-purple-300';
+      case 'user': return 'bg-blue-900/50 text-blue-300';
+      default: return 'bg-gray-700 text-gray-300';
+    }
+  };
+
+  // Group chat messages into conversations
+  const groupConversations = (messages) => {
+    if (!messages || messages.length === 0) return [];
+
+    const convos = [];
+    let currentConvo = [];
+    let lastTime = null;
+
+    messages.forEach((msg) => {
+      const msgTime = new Date(msg.created_at).getTime();
+      // New conversation if more than 30 min gap
+      if (lastTime && (msgTime - lastTime) > 30 * 60 * 1000) {
+        if (currentConvo.length > 0) convos.push(currentConvo);
+        currentConvo = [];
+      }
+      currentConvo.push(msg);
+      lastTime = msgTime;
+    });
+
+    if (currentConvo.length > 0) convos.push(currentConvo);
+    return convos;
+  };
+
+  const conversations = groupConversations(data?.chat_messages);
+
+  return (
+    <div className="fixed inset-0 bg-gray-900 z-50 overflow-y-auto">
+      {/* Header */}
+      <div className="sticky top-0 bg-gray-900 border-b border-gray-700 px-6 py-4 flex items-center justify-between z-10">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-800 rounded-full transition-colors"
+          >
+            <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold text-purple-400 font-mono">{rsid}</h1>
+            {data?.annotation?.gene && (
+              <p className="text-sm text-gray-400">Gene: {data.annotation.gene}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {data && (
+            <>
+              {/* Favorite button */}
+              <button
+                onClick={() => toggleFavorite(rsid, data.is_favorite)}
+                className={`p-2 rounded-full transition-colors ${
+                  data.is_favorite
+                    ? 'text-yellow-500 bg-yellow-900/20'
+                    : 'text-gray-400 hover:text-yellow-500 hover:bg-yellow-900/20'
+                }`}
+                title={data.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <svg className="w-6 h-6" fill={data.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+              </button>
+
+              {/* Improve with Claude button */}
+              <button
+                onClick={handleImprove}
+                disabled={improving}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all ${
+                  improving
+                    ? 'bg-purple-900/50 text-purple-300 cursor-not-allowed'
+                    : 'bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700'
+                }`}
+                title="Ask Claude to improve the summary and fill in all genotype variants"
+              >
+                {improving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span>Improving...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    <span>Improve with Claude</span>
+                  </>
+                )}
+              </button>
+            </>
+          )}
+          <a
+            href={`https://www.snpedia.com/index.php/${rsid}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-3 py-1.5 bg-gray-800 text-gray-300 rounded-lg text-sm hover:bg-gray-700 transition-colors"
+          >
+            SNPedia
+          </a>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 bg-gray-700 text-white rounded-lg text-sm hover:bg-gray-600 transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-5xl mx-auto p-6">
+        {/* Loading */}
+        {isLoading && (
+          <div className="flex items-center justify-center py-20">
+            <svg className="animate-spin h-10 w-10 text-purple-500" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="text-center py-20">
+            <p className="text-red-400 mb-4">Error loading SNP data</p>
+            <p className="text-gray-500 text-sm mb-4">{error.message}</p>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600"
+            >
+              Go Back
+            </button>
+          </div>
+        )}
+
+        {/* Data */}
+        {data && !isLoading && !error && (
+          <div className="space-y-6">
+            {/* Location & Importance - inline */}
+            <div className="flex items-center gap-6 text-sm">
+              <span className="text-gray-400">
+                <span className="text-gray-500">Location:</span>{' '}
+                <span className="text-white">Chr {data.chromosome || '?'}</span>{' '}
+                <span className="text-gray-500">pos</span>{' '}
+                <span className="text-white">{data.position ? data.position.toLocaleString() : '?'}</span>
+              </span>
+              <span className="text-gray-600">|</span>
+              <span className="flex items-center gap-2">
+                <span className="text-gray-500">Importance:</span>
+                {data.annotation?.magnitude != null && <MagnitudeBadge magnitude={data.annotation.magnitude} />}
+                {data.annotation?.repute && <ReputeBadge repute={data.annotation.repute} />}
+                {(!data.annotation?.magnitude && data.annotation?.magnitude !== 0) && !data.annotation?.repute && (
+                  <span className="text-gray-500">Unknown</span>
+                )}
+              </span>
+              {data.annotation?.categories?.length > 0 && (
+                <>
+                  <span className="text-gray-600">|</span>
+                  <span className="flex items-center gap-1 flex-wrap">
+                    {data.annotation.categories.slice(0, 3).map((cat) => (
+                      <span key={cat} className="px-1.5 py-0.5 bg-purple-900/30 text-purple-300 rounded text-xs capitalize">
+                        {cat}
+                      </span>
+                    ))}
+                    {data.annotation.categories.length > 3 && (
+                      <span className="text-gray-500 text-xs">+{data.annotation.categories.length - 3}</span>
+                    )}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Summary */}
+            {data.annotation?.summary && typeof data.annotation.summary === 'string' && (
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+                  Summary
+                  <span className={`px-2 py-0.5 rounded text-xs ${getSourceColor(data.annotation?.source || 'snpedia')}`}>
+                    {data.annotation?.source || 'snpedia'}
+                  </span>
+                </h2>
+                <div className="text-sm text-gray-300 prose prose-sm prose-invert max-w-none">
+                  <ReactMarkdown>{String(data.annotation.summary)}</ReactMarkdown>
+                </div>
+              </div>
+            )}
+
+            {/* Genotype Variants */}
+            {data.annotation?.genotype_info && Object.keys(data.annotation.genotype_info).length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 className="text-sm font-semibold text-white mb-3">Genotype Variants</h2>
+                <div className="space-y-2">
+                  {Object.entries(data.annotation.genotype_info)
+                    .sort(([gtA], [gtB]) => {
+                      // Sort user's genotype to top
+                      const aIsYours = gtA === data.genotype || gtA === data.matched_genotype;
+                      const bIsYours = gtB === data.genotype || gtB === data.matched_genotype;
+                      if (aIsYours && !bIsYours) return -1;
+                      if (!aIsYours && bIsYours) return 1;
+                      return 0;
+                    })
+                    .map(([gt, info]) => {
+                      const isYours = gt === data.genotype || gt === data.matched_genotype;
+                      return (
+                        <div key={gt} className={`p-3 rounded ${isYours ? 'bg-blue-900/30 border border-blue-700' : 'bg-gray-700/50'}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono font-bold text-white text-lg">{gt}</span>
+                            {isYours && (
+                              <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                                Your genotype
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-300">{info}</p>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* Claude Conversations - clickable items */}
+            {conversations.length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 className="text-sm font-semibold text-white mb-3">
+                  Claude Conversations ({conversations.length})
+                </h2>
+                <div className="space-y-2">
+                  {conversations.map((convo, idx) => {
+                    const firstMsg = convo[0];
+                    const preview = firstMsg?.content?.substring(0, 100) || 'Conversation';
+                    const date = new Date(firstMsg?.created_at).toLocaleDateString();
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedConvo(convo)}
+                        className="w-full text-left p-3 bg-gray-700/50 hover:bg-gray-700 rounded-lg transition-colors"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-purple-400">{convo.length} messages</span>
+                          <span className="text-xs text-gray-500">{date}</span>
+                        </div>
+                        <p className="text-sm text-gray-300 truncate">{preview}...</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Knowledge Entries - clickable items */}
+            {data.knowledge_entries?.length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 className="text-sm font-semibold text-white mb-3">
+                  Knowledge Base ({data.knowledge_entries.length})
+                </h2>
+                <div className="space-y-2">
+                  {data.knowledge_entries.map((entry, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedKnowledge(entry)}
+                      className="w-full text-left p-3 bg-gray-700/50 hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-1.5 py-0.5 rounded text-xs ${getSourceColor(entry.source)}`}>
+                          {entry.source}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {new Date(entry.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-300 truncate">
+                        {entry.query?.substring(0, 80) || 'Knowledge entry'}...
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Data Log - clickable items */}
+            {data.data_log_entries?.length > 0 && (
+              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 className="text-sm font-semibold text-white mb-3">
+                  Data Log ({data.data_log_entries.length})
+                </h2>
+                <div className="space-y-2">
+                  {data.data_log_entries.map((entry, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedDataLog(entry)}
+                      className="w-full text-left p-2 bg-gray-700/50 hover:bg-gray-700 rounded-lg transition-colors flex items-center gap-2"
+                    >
+                      <span className={`px-1.5 py-0.5 rounded text-xs ${getSourceColor(entry.source)}`}>
+                        {entry.source}
+                      </span>
+                      <span className="px-1.5 py-0.5 bg-gray-600 text-gray-300 rounded text-xs">
+                        {entry.data_type}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(entry.created_at).toLocaleDateString()}
+                      </span>
+                      <span className="text-xs text-gray-400 truncate flex-1">
+                        {entry.content?.substring(0, 50)}...
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state if no meaningful data */}
+            {!data.annotation?.summary &&
+             !conversations.length &&
+             !data.knowledge_entries?.length &&
+             !data.data_log_entries?.length && (
+              <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center">
+                <p className="text-gray-400 mb-2">No additional data available for this SNP yet.</p>
+                <p className="text-gray-500 text-sm mb-4">
+                  Click "Improve with Claude" above to generate a detailed summary and genotype information.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Conversation Modal */}
+      <ContentModal
+        isOpen={!!selectedConvo}
+        onClose={() => setSelectedConvo(null)}
+        title="Claude Conversation"
+      >
+        <ConversationView messages={selectedConvo} />
+      </ContentModal>
+
+      {/* Knowledge Modal */}
+      <ContentModal
+        isOpen={!!selectedKnowledge}
+        onClose={() => setSelectedKnowledge(null)}
+        title="Knowledge Entry"
+      >
+        {selectedKnowledge && <KnowledgeView entry={selectedKnowledge} />}
+      </ContentModal>
+
+      {/* Data Log Modal */}
+      <ContentModal
+        isOpen={!!selectedDataLog}
+        onClose={() => setSelectedDataLog(null)}
+        title="Data Log Entry"
+      >
+        {selectedDataLog && <DataLogView entry={selectedDataLog} />}
+      </ContentModal>
+    </div>
+  );
+}
