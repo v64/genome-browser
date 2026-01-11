@@ -20,6 +20,7 @@ import DataLogViewer from './components/DataLogViewer'
 import GenomeQuery from './components/GenomeQuery'
 import { SnpFullPage } from './components/SnpFullPage'
 import { LabelFilterPanel } from './components/LabelFilterPanel'
+import { TagFilter } from './components/TagFilter'
 
 const TABS = {
   DASHBOARD: 'dashboard',
@@ -55,12 +56,29 @@ function AppLayout() {
   // Get selected SNP from query param
   const selectedSnp = searchParams.get('snp')
 
-  const [search, setSearch] = useState('')
+  // Initialize search from URL query param if present
+  const urlTag = searchParams.get('tag')
+  const [search, setSearch] = useState(() => urlTag ? `tag:${urlTag}` : '')
   const [selectedCategories, setSelectedCategories] = useState([])
   const [selectedChromosome, setSelectedChromosome] = useState(null)
   const [selectedLabel, setSelectedLabel] = useState(null)
   const [offset, setOffset] = useState(0)
   const [allResults, setAllResults] = useState([])
+
+  // Update search when tag query param changes (e.g., navigating from full page)
+  useEffect(() => {
+    const tagParam = searchParams.get('tag')
+    if (tagParam) {
+      setSearch(`tag:${tagParam}`)
+      setSelectedLabel(null)
+      setSelectedCategories([])
+      setSelectedChromosome(null)
+      // Clear tag from URL to avoid stale state
+      const newParams = new URLSearchParams(searchParams)
+      newParams.delete('tag')
+      setSearchParams(newParams, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
 
   // GenomeQuery state (persists across tab switches and navigation)
   // Restore from sessionStorage on mount
@@ -82,6 +100,8 @@ function AppLayout() {
   useEffect(() => {
     if (genomeQueryResults) {
       sessionStorage.setItem('genomeQueryResults', JSON.stringify(genomeQueryResults))
+    } else {
+      sessionStorage.removeItem('genomeQueryResults')
     }
   }, [genomeQueryResults])
 
@@ -95,11 +115,21 @@ function AppLayout() {
     staleTime: Infinity,
   })
 
+  // Parse tag: prefix from search box
+  const parsedSearch = useMemo(() => {
+    if (search.toLowerCase().startsWith('tag:')) {
+      return { searchText: undefined, tagFromSearch: search.slice(4).trim() }
+    }
+    return { searchText: search || undefined, tagFromSearch: undefined }
+  }, [search])
+
   // Build search params for traditional browse
+  // Tag from search box (tag:X syntax) is used for tag filtering
   const browseSearchParams = {
-    search: search || undefined,
+    search: parsedSearch.searchText,
     category: selectedCategories[0] || undefined,
     chromosome: selectedChromosome || undefined,
+    tag: parsedSearch.tagFromSearch || undefined,
     limit: 50,
     offset,
   }
@@ -134,7 +164,7 @@ function AppLayout() {
     }
   }, [data, offset])
 
-  // Reset offset when filters change
+  // Reset offset and clear results when filters change
   useEffect(() => {
     setOffset(0)
     setAllResults([])
@@ -156,20 +186,44 @@ function AppLayout() {
     }
   }, [])
 
-  // Clear label when other filters are used
+  // Clear label and tag search when other filters are used
   const handleCategoryChange = useCallback((categories) => {
     setSelectedCategories(categories)
-    if (categories.length > 0) setSelectedLabel(null)
-  }, [])
+    if (categories.length > 0) {
+      setSelectedLabel(null)
+      // Clear tag search if user selects a category
+      if (search.toLowerCase().startsWith('tag:')) {
+        setSearch('')
+      }
+    }
+  }, [search])
 
   const handleChromosomeChange = useCallback((chromosome) => {
     setSelectedChromosome(chromosome)
-    if (chromosome) setSelectedLabel(null)
-  }, [])
+    if (chromosome) {
+      setSelectedLabel(null)
+      // Clear tag search if user selects a chromosome
+      if (search.toLowerCase().startsWith('tag:')) {
+        setSearch('')
+      }
+    }
+  }, [search])
 
   const handleSearchChange = useCallback((searchText) => {
     setSearch(searchText)
-    if (searchText) setSelectedLabel(null)
+    if (searchText) {
+      setSelectedLabel(null)
+    }
+  }, [])
+
+  const handleTagChange = useCallback((tag) => {
+    // Set the search text directly with tag: prefix
+    if (tag) {
+      setSearch(`tag:${tag}`)
+      setSelectedLabel(null)
+    } else {
+      setSearch('')
+    }
   }, [])
 
   // Navigation helpers
@@ -204,15 +258,15 @@ function AppLayout() {
   }, [navigate, location])
 
   const handleTagClick = useCallback((tag) => {
-    // Navigate to browse page and search for the tag
-    setSearch(tag)
+    // Navigate to browse page and filter by the tag
+    // Use handleSearchChange to ensure consistent behavior
+    handleSearchChange(`tag:${tag}`)
     setSelectedCategories([])
     setSelectedChromosome(null)
-    setSelectedLabel(null)
     setOffset(0)
     setAllResults([])
     navigate('/browse')
-  }, [navigate])
+  }, [navigate, handleSearchChange])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -333,6 +387,10 @@ function AppLayout() {
           {/* Sidebar (for Browse tab) */}
           {activeTab === TABS.BROWSE && (
             <aside className="w-64 flex-shrink-0 space-y-6">
+              <TagFilter
+                selected={parsedSearch.tagFromSearch}
+                onChange={handleTagChange}
+              />
               <LabelFilterPanel
                 selected={selectedLabel}
                 onChange={handleLabelChange}
@@ -383,7 +441,8 @@ function AppLayout() {
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                     {data.total.toLocaleString()} results
                     {selectedLabel && ` labeled "${selectedLabel}"`}
-                    {search && ` for "${search}"`}
+                    {parsedSearch.tagFromSearch && ` tagged "${parsedSearch.tagFromSearch}"`}
+                    {parsedSearch.searchText && ` for "${parsedSearch.searchText}"`}
                     {selectedChromosome && ` on chromosome ${selectedChromosome}`}
                   </p>
                 )}
@@ -467,8 +526,9 @@ function SnpFullPageWrapper() {
   }, [navigate, location.state])
 
   const handleTagClick = useCallback((tag) => {
-    // Navigate to browse page with tag search
-    navigate(`/browse?search=${encodeURIComponent(tag)}`)
+    // Navigate to browse page with tag filter
+    // The AppLayout will pick up the tag param and set the search bar
+    navigate(`/browse?tag=${encodeURIComponent(tag)}`)
   }, [navigate])
 
   if (!rsid) {

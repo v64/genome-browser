@@ -4,6 +4,11 @@ export function SearchBar({ value, onChange, placeholder = "Search by rsid, gene
   const [localValue, setLocalValue] = useState(value || '')
   const inputRef = useRef(null)
 
+  // Sync localValue when external value prop changes (e.g., clicking a tag)
+  useEffect(() => {
+    setLocalValue(value || '')
+  }, [value])
+
   // Debounce the search
   useEffect(() => {
     const timer = setTimeout(() => {

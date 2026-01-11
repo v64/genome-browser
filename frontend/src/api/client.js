@@ -30,6 +30,7 @@ export const api = {
 
   getSnp: (rsid) => fetchApi(`/snps/${rsid}`),
   getSnpFull: (rsid) => fetchApi(`/snps/${rsid}/full`),
+  getTags: () => fetchApi('/snps/meta/tags'),
 
   // Categories
   getCategories: () => fetchApi('/categories'),

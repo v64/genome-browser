@@ -11,6 +11,7 @@ async def list_snps(
     search: Optional[str] = Query(None, description="Search by rsid, gene, or keyword"),
     chromosome: Optional[str] = Query(None, description="Filter by chromosome"),
     category: Optional[str] = Query(None, description="Filter by category"),
+    tag: Optional[str] = Query(None, description="Filter by tag (exact match in categories)"),
     min_magnitude: Optional[float] = Query(None, ge=0, le=10, description="Minimum magnitude"),
     repute: Optional[str] = Query(None, description="Filter by repute: good, bad, neutral"),
     favorites_only: bool = Query(False, description="Show only favorites"),
@@ -22,6 +23,7 @@ async def list_snps(
         search=search,
         chromosome=chromosome,
         category=category,
+        tag=tag,
         min_magnitude=min_magnitude,
         repute=repute,
         favorites_only=favorites_only,
@@ -36,6 +38,13 @@ async def list_snps(
         "offset": offset,
         "has_more": offset + len(results) < total
     }
+
+
+@router.get("/meta/tags")
+async def get_all_tags():
+    """Get all unique tags/categories with their counts."""
+    tags = await database.get_all_tags()
+    return {"tags": tags}
 
 
 @router.get("/{rsid}")

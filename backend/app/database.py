@@ -191,6 +191,7 @@ async def search_snps(
     search: Optional[str] = None,
     chromosome: Optional[str] = None,
     category: Optional[str] = None,
+    tag: Optional[str] = None,
     min_magnitude: Optional[float] = None,
     repute: Optional[str] = None,
     favorites_only: bool = False,
@@ -229,6 +230,11 @@ async def search_snps(
         if category:
             conditions.append("a.categories LIKE ?")
             params.append(f"%{category}%")
+
+        if tag:
+            # Match exact tag within JSON array (e.g., "population genetics" in ["ancestry", "population genetics"])
+            conditions.append('a.categories LIKE ?')
+            params.append(f'%"{tag}"%')
 
         if min_magnitude is not None:
             conditions.append("a.magnitude >= ?")
@@ -1035,6 +1041,31 @@ async def get_data_log_stats() -> dict:
             stats["by_type"] = {row[0]: row[1] for row in rows}
 
         return stats
+
+
+async def get_all_tags() -> list[dict]:
+    """Get all unique tags/categories with their counts."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        # Get all non-null categories
+        async with db.execute("SELECT categories FROM annotations WHERE categories IS NOT NULL AND categories != '[]'") as cursor:
+            rows = await cursor.fetchall()
+
+        # Count occurrences of each tag
+        tag_counts = {}
+        for row in rows:
+            try:
+                categories = json.loads(row[0])
+                if isinstance(categories, list):
+                    for tag in categories:
+                        tag = tag.strip()
+                        if tag:
+                            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        # Sort by count descending
+        sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+        return [{"tag": tag, "count": count} for tag, count in sorted_tags]
 
 
 # ============ Genotype Labels ============
