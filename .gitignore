@@ -3,5 +3,6 @@
 data/
 genome*.txt
 backend/.venv/
+backend/genome.db
 frontend/node_modules/
 frontend/dist/
