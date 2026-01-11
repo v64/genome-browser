@@ -195,12 +195,9 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
         {/* Header */}
         <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                {rsid}
-              </h2>
-              {snp?.source && getSourceBadge(snp.source)}
-            </div>
+            <h2 className="text-xl font-bold text-blue-600 dark:text-blue-400">
+              {rsid}
+            </h2>
             {snp?.title && (
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {snp.title}
