@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useState, useCallback, useEffect, useMemo } from 'react'
+import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { api } from './api/client'
 import { useFavorites } from './hooks/useFavorites'
 import { useChat } from './hooks/useChat'
@@ -27,12 +28,35 @@ const TABS = {
   FAVORITES: 'favorites',
 }
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState(TABS.DASHBOARD)
+// Map URL paths to tab names
+const pathToTab = {
+  '/': TABS.DASHBOARD,
+  '/dashboard': TABS.DASHBOARD,
+  '/search': TABS.SEARCH,
+  '/browse': TABS.BROWSE,
+  '/data': TABS.DATA,
+  '/favorites': TABS.FAVORITES,
+}
+
+function AppLayout() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Get active tab from URL path
+  const activeTab = useMemo(() => {
+    const path = location.pathname
+    // Check if we're on a SNP full page
+    if (path.startsWith('/snp/')) return null
+    return pathToTab[path] || TABS.DASHBOARD
+  }, [location.pathname])
+
+  // Get selected SNP from query param
+  const selectedSnp = searchParams.get('snp')
+
   const [search, setSearch] = useState('')
   const [selectedCategories, setSelectedCategories] = useState([])
   const [selectedChromosome, setSelectedChromosome] = useState(null)
-  const [selectedSnp, setSelectedSnp] = useState(null)
   const [offset, setOffset] = useState(0)
   const [allResults, setAllResults] = useState([])
 
@@ -41,9 +65,6 @@ export default function App() {
   const [genomeSearchLoading, setGenomeSearchLoading] = useState(false)
   const [genomeSearchResults, setGenomeSearchResults] = useState(null)
   const [genomeSearchError, setGenomeSearchError] = useState(null)
-
-  // Full page SNP view
-  const [fullPageSnp, setFullPageSnp] = useState(null)
 
   const { toggleFavorite } = useFavorites()
   const chat = useChat()
@@ -56,7 +77,7 @@ export default function App() {
   })
 
   // Build search params for traditional browse
-  const searchParams = {
+  const browseSearchParams = {
     search: search || undefined,
     category: selectedCategories[0] || undefined,
     chromosome: selectedChromosome || undefined,
@@ -65,8 +86,8 @@ export default function App() {
   }
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['snps', searchParams],
-    queryFn: () => api.searchSnps(searchParams),
+    queryKey: ['snps', browseSearchParams],
+    queryFn: () => api.searchSnps(browseSearchParams),
     enabled: activeTab === TABS.BROWSE,
   })
 
@@ -93,28 +114,42 @@ export default function App() {
     }
   }, [data?.has_more, isFetching])
 
+  // Navigation helpers
+  const setActiveTab = useCallback((tab) => {
+    const path = tab === TABS.DASHBOARD ? '/' : `/${tab}`
+    // Preserve query params when switching tabs
+    navigate(path + location.search)
+  }, [navigate, location.search])
+
   const handleSnpClick = useCallback((snp) => {
-    setSelectedSnp(snp.rsid)
-  }, [])
+    const rsid = typeof snp === 'string' ? snp : snp.rsid
+    // Add snp to query params while preserving current path
+    const newParams = new URLSearchParams(searchParams)
+    newParams.set('snp', rsid)
+    setSearchParams(newParams)
+  }, [searchParams, setSearchParams])
 
   const handleCloseDetail = useCallback(() => {
-    setSelectedSnp(null)
-  }, [])
+    // Remove snp from query params
+    const newParams = new URLSearchParams(searchParams)
+    newParams.delete('snp')
+    setSearchParams(newParams)
+  }, [searchParams, setSearchParams])
 
   const handleChatSnpClick = useCallback((rsid) => {
-    setSelectedSnp(rsid)
-  }, [])
+    handleSnpClick(rsid)
+  }, [handleSnpClick])
 
   const handleViewFullPage = useCallback((rsid) => {
-    setFullPageSnp(rsid)
-    setSelectedSnp(null) // Close sidebar when opening full page
-  }, [])
+    // Navigate to full page view, preserving the return path
+    navigate(`/snp/${rsid}`, { state: { from: location.pathname + location.search } })
+  }, [navigate, location])
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && selectedSnp) {
-        setSelectedSnp(null)
+        handleCloseDetail()
       }
       if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
         if (e.key === '1') setActiveTab(TABS.DASHBOARD)
@@ -127,7 +162,7 @@ export default function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedSnp])
+  }, [selectedSnp, handleCloseDetail, setActiveTab])
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -135,7 +170,7 @@ export default function App() {
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
               <span className="text-2xl">🧬</span>
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 Genome Browser
@@ -316,15 +351,6 @@ export default function App() {
         />
       )}
 
-      {/* Full Page SNP View */}
-      {fullPageSnp && (
-        <SnpFullPage
-          rsid={fullPageSnp}
-          onClose={() => setFullPageSnp(null)}
-          onSnpClick={handleSnpClick}
-        />
-      )}
-
       {/* Chat Panel */}
       <ChatPanel
         isOpen={chat.isOpen}
@@ -338,5 +364,50 @@ export default function App() {
         onSnpClick={handleChatSnpClick}
       />
     </div>
+  )
+}
+
+function SnpFullPageWrapper() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
+
+  // Get rsid from URL path
+  const rsid = location.pathname.split('/snp/')[1]
+
+  const handleClose = useCallback(() => {
+    // Go back to previous page if we have history, otherwise go to dashboard
+    const from = location.state?.from
+    if (from) {
+      navigate(from)
+    } else {
+      navigate('/')
+    }
+  }, [navigate, location.state])
+
+  const handleSnpClick = useCallback((clickedRsid) => {
+    // Navigate to the clicked SNP's full page
+    navigate(`/snp/${clickedRsid}`, { state: location.state })
+  }, [navigate, location.state])
+
+  if (!rsid) {
+    return <Navigate to="/" replace />
+  }
+
+  return (
+    <SnpFullPage
+      rsid={rsid}
+      onClose={handleClose}
+      onSnpClick={handleSnpClick}
+    />
+  )
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/snp/:rsid" element={<SnpFullPageWrapper />} />
+      <Route path="/*" element={<AppLayout />} />
+    </Routes>
   )
 }

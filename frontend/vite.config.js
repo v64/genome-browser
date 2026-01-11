@@ -11,5 +11,7 @@ export default defineConfig({
         changeOrigin: true
       }
     }
-  }
+  },
+  // Support client-side routing - fallback to index.html for all routes
+  appType: 'spa'
 })

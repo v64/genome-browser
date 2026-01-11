@@ -316,7 +316,7 @@ function DataLogView({ entry }) {
   );
 }
 
-export function SnpFullPage({ rsid, onClose }) {
+export function SnpFullPage({ rsid, onClose, onSnpClick }) {
   const queryClient = useQueryClient();
   const { toggleFavorite } = useFavorites();
   const [improving, setImproving] = useState(false);
@@ -326,7 +326,7 @@ export function SnpFullPage({ rsid, onClose }) {
   const [selectedKnowledge, setSelectedKnowledge] = useState(null);
   const [selectedDataLog, setSelectedDataLog] = useState(null);
 
-  // Close on Escape key
+  // Close on Escape key (only if no modals are open)
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape' && !selectedConvo && !selectedKnowledge && !selectedDataLog) {
