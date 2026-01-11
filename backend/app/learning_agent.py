@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional, Callable
 from anthropic import Anthropic
 
-from . import database
+from . import database, snpedia
 
 # Global state for the learning agent
 agent_state = {
@@ -68,6 +68,39 @@ def extract_rsids(text: str) -> list[str]:
     matches = re.findall(r'\brs\d+\b', text, re.IGNORECASE)
     # Normalize to lowercase and dedupe
     return list(set(rsid.lower() for rsid in matches))
+
+
+async def auto_fetch_snpedia_for_rsids(rsids: list[str]):
+    """
+    Background task to fetch SNPedia data for rsIDs that don't have annotations.
+    Called when rsIDs are mentioned in Claude conversations.
+    """
+    if not rsids:
+        return
+
+    for rsid in rsids[:30]:  # Limit to 30 per batch
+        # Check if we already have annotation data
+        existing = await database.get_annotation(rsid)
+
+        # Skip if we already have SNPedia data (not just Claude data)
+        if existing and existing.get("source") == "snpedia":
+            continue
+        if existing and existing.get("ref_urls"):  # Has SNPedia refs
+            continue
+
+        # Fetch from SNPedia in background
+        try:
+            log("system", f"Auto-fetching SNPedia data for {rsid}")
+            result = await snpedia.fetch_snp_info(rsid)
+            if result:
+                log("system", f"Fetched SNPedia data for {rsid}: {result.get('gene', 'no gene')}")
+            else:
+                log("system", f"No SNPedia data found for {rsid}")
+        except Exception as e:
+            log("error", f"Failed to fetch SNPedia for {rsid}: {str(e)}")
+
+        # Rate limiting
+        await asyncio.sleep(0.5)
 
 
 def parse_genotype_request(text: str) -> list[str]:
@@ -474,6 +507,10 @@ If you don't need to look up any genotypes (the question is general knowledge or
         snps_mentioned=all_rsids,
         source="claude_conversation"
     )
+
+    # Auto-fetch SNPedia data for mentioned rsIDs in background
+    if all_rsids:
+        asyncio.create_task(auto_fetch_snpedia_for_rsids(all_rsids))
 
     # Look up genotypes and get interpretations for SNPs mentioned
     for rsid in all_rsids[:20]:  # Limit to 20 SNPs per query

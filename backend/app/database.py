@@ -291,6 +291,7 @@ async def improve_annotation(
     rsid: str,
     summary: Optional[str] = None,
     genotype_info: Optional[dict] = None,
+    categories: Optional[list[str]] = None,
     source: str = "claude"
 ) -> bool:
     """Improve an annotation, preserving the original."""
@@ -322,6 +323,22 @@ async def improve_annotation(
                 params.append(current.get("genotype_info"))
             updates.append("genotype_info = ?")
             params.append(json.dumps(genotype_info))
+
+        if categories is not None:
+            # Merge with existing categories, dedupe
+            existing_cats = []
+            if current.get("categories"):
+                try:
+                    existing_cats = json.loads(current["categories"])
+                except:
+                    pass
+            # Combine existing and new, dedupe while preserving order
+            all_cats = list(existing_cats)
+            for cat in categories:
+                if cat.lower() not in [c.lower() for c in all_cats]:
+                    all_cats.append(cat.lower())
+            updates.append("categories = ?")
+            params.append(json.dumps(all_cats))
 
         params.append(rsid)
 

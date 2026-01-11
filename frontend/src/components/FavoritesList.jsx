@@ -1,7 +1,7 @@
 import { useFavorites } from '../hooks/useFavorites'
 import { SnpCard } from './SnpCard'
 
-export function FavoritesList({ onSnpClick }) {
+export function FavoritesList({ onSnpClick, onTagClick }) {
   const { favorites, count, isLoading, toggleFavorite } = useFavorites()
 
   if (isLoading) {
@@ -52,6 +52,7 @@ export function FavoritesList({ onSnpClick }) {
             snp={snp}
             onClick={onSnpClick}
             onToggleFavorite={toggleFavorite}
+            onTagClick={onTagClick}
           />
         ))}
       </div>

@@ -339,6 +339,7 @@ Your task:
 1. Create a thorough summary that covers EVERYTHING we know about this SNP - from the base annotation AND from all the additional context (conversations about traits, conditions, behaviors, etc.)
 2. Include CITATIONS in your summary using [cite:SOURCE_ID] format wherever you reference information from a specific source
 3. For each genotype variant, provide comprehensive explanations that incorporate all relevant context
+4. Provide rich TAGS that describe what this SNP is related to - be generous with tags!
 
 IMPORTANT: Your summary should be comprehensive - if there's information in the context about how this SNP relates to specific traits (like mathematical ability, caffeine sensitivity, stress response, etc.), include that with citations!
 
@@ -347,8 +348,18 @@ Return your response as JSON with this exact format:
     "summary": "Your comprehensive summary here with [cite:knowledge_123] inline citations",
     "genotype_info": {{
         {example_genotypes.replace('"', '')}: "Use the correct alleles shown in the existing annotations"
-    }}
+    }},
+    "tags": ["tag1", "tag2", "tag3", ...]
 }}
+
+TAGS GUIDELINES - Be generous and specific! Include tags for:
+- Body systems: "brain", "heart", "liver", "immune system", "nervous system", "metabolism"
+- Traits: "intelligence", "memory", "creativity", "athletic performance", "sleep", "anxiety", "mood"
+- Health: "cancer risk", "cardiovascular", "diabetes", "alzheimers", "mental health", "longevity"
+- Lifestyle: "caffeine", "alcohol", "nicotine", "diet", "exercise response", "drug metabolism"
+- Categories: "pharmacogenomics", "ancestry", "nutrition", "cognition", "personality", "physical traits"
+- Specific conditions or traits mentioned in the context
+Use lowercase for all tags. Aim for 5-15 relevant tags per SNP.
 
 CRITICAL: Use ONLY the alleles that appear in the existing genotype annotations (check the genotype_info keys above). If the annotations use C/T alleles, your genotype_info keys MUST be CC, CT, TT - NOT AA, AG, GG. The user's genotype to highlight is: {display_genotype}
 
@@ -368,10 +379,18 @@ Only include genotypes that are actually relevant for this SNP. Make the languag
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
             improved = json.loads(json_match.group())
+
+            # Extract and normalize tags
+            tags = improved.get("tags", [])
+            if tags:
+                # Ensure lowercase, dedupe, strip whitespace
+                tags = list(set(tag.lower().strip() for tag in tags if isinstance(tag, str) and tag.strip()))
+
             return {
                 "rsid": rsid,
                 "improved_summary": improved.get("summary"),
                 "improved_genotype_info": improved.get("genotype_info", {}),
+                "tags": tags,
                 "citations": citation_sources,
                 "usage": {
                     "input_tokens": response.usage.input_tokens,

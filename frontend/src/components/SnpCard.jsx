@@ -1,7 +1,7 @@
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
 
-export function SnpCard({ snp, onClick, onToggleFavorite }) {
+export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
   const handleFavoriteClick = (e) => {
     e.stopPropagation()
     onToggleFavorite?.(snp.rsid, snp.is_favorite)
@@ -72,13 +72,20 @@ export function SnpCard({ snp, onClick, onToggleFavorite }) {
         </p>
       )}
 
-      <div className="flex items-center gap-2 mt-3">
+      <div className="flex flex-wrap items-center gap-2 mt-3">
         <ReputeBadge repute={snp.repute} />
 
         {snp.categories?.map((cat) => (
-          <span key={cat} className="badge badge-category capitalize">
+          <button
+            key={cat}
+            onClick={(e) => {
+              e.stopPropagation()
+              onTagClick?.(cat)
+            }}
+            className="badge badge-category capitalize hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors cursor-pointer"
+          >
             {cat}
-          </span>
+          </button>
         ))}
 
         {!snp.has_annotation && (

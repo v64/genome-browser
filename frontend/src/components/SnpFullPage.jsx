@@ -351,7 +351,7 @@ function DataLogView({ entry }) {
   );
 }
 
-export function SnpFullPage({ rsid, onClose, onSnpClick }) {
+export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
   const queryClient = useQueryClient();
   const { toggleFavorite } = useFavorites();
   const [improving, setImproving] = useState(false);
@@ -693,22 +693,22 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
                   <span className="text-gray-500">Unknown</span>
                 )}
               </span>
-              {data.annotation?.categories?.length > 0 && (
-                <>
-                  <span className="text-gray-600">|</span>
-                  <span className="flex items-center gap-1 flex-wrap">
-                    {data.annotation.categories.slice(0, 3).map((cat) => (
-                      <span key={cat} className="px-1.5 py-0.5 bg-purple-900/30 text-purple-300 rounded text-xs capitalize">
-                        {cat}
-                      </span>
-                    ))}
-                    {data.annotation.categories.length > 3 && (
-                      <span className="text-gray-500 text-xs">+{data.annotation.categories.length - 3}</span>
-                    )}
-                  </span>
-                </>
-              )}
             </div>
+
+            {/* Tags/Categories */}
+            {data.annotation?.categories?.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {data.annotation.categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => onTagClick?.(cat)}
+                    className="px-2 py-1 bg-purple-900/40 text-purple-300 rounded-lg text-sm capitalize hover:bg-purple-700/60 transition-colors cursor-pointer"
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Summary */}
             {(data.annotation?.summary || editingSummary || data.annotation) && (

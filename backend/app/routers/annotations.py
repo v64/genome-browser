@@ -63,11 +63,12 @@ async def improve_annotation(rsid: str, request: ImproveRequest = None):
 
         applied = False
         if request and request.apply:
-            # Save the improved annotation
+            # Save the improved annotation with tags
             await database.improve_annotation(
                 rsid=rsid,
                 summary=result.get("improved_summary"),
                 genotype_info=result.get("improved_genotype_info"),
+                categories=result.get("tags"),
                 source="claude"
             )
             applied = True
@@ -278,6 +279,7 @@ async def batch_improve_annotations(
                     rsid=snp["rsid"],
                     summary=result.get("improved_summary"),
                     genotype_info=result.get("improved_genotype_info"),
+                    categories=result.get("tags"),
                     source="claude"
                 )
 

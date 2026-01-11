@@ -8,6 +8,7 @@ export function SnpList({
   onLoadMore,
   onSnpClick,
   onToggleFavorite,
+  onTagClick,
   emptyMessage = "No SNPs found",
 }) {
   const loadMoreRef = useInfiniteScroll(onLoadMore, hasMore, isLoading)
@@ -41,6 +42,7 @@ export function SnpList({
           snp={snp}
           onClick={onSnpClick}
           onToggleFavorite={onToggleFavorite}
+          onTagClick={onTagClick}
         />
       ))}
 

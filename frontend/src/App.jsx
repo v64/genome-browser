@@ -186,6 +186,17 @@ function AppLayout() {
     navigate(`/snp/${rsid}`, { state: { from: location.pathname + location.search } })
   }, [navigate, location])
 
+  const handleTagClick = useCallback((tag) => {
+    // Navigate to browse page and search for the tag
+    setSearch(tag)
+    setSelectedCategories([])
+    setSelectedChromosome(null)
+    setSelectedLabel(null)
+    setOffset(0)
+    setAllResults([])
+    navigate('/browse')
+  }, [navigate])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -366,6 +377,7 @@ function AppLayout() {
                   onLoadMore={handleLoadMore}
                   onSnpClick={handleSnpClick}
                   onToggleFavorite={toggleFavorite}
+                  onTagClick={handleTagClick}
                   emptyMessage={
                     search
                       ? `No results for "${search}"`
@@ -380,7 +392,7 @@ function AppLayout() {
             )}
 
             {activeTab === TABS.FAVORITES && (
-              <FavoritesList onSnpClick={handleSnpClick} />
+              <FavoritesList onSnpClick={handleSnpClick} onTagClick={handleTagClick} />
             )}
           </main>
         </div>
@@ -394,6 +406,7 @@ function AppLayout() {
           onToggleFavorite={toggleFavorite}
           onAskClaude={() => chat.setIsOpen(true)}
           onViewFullPage={handleViewFullPage}
+          onTagClick={handleTagClick}
         />
       )}
 
@@ -436,6 +449,11 @@ function SnpFullPageWrapper() {
     navigate(`/snp/${clickedRsid}`, { state: location.state })
   }, [navigate, location.state])
 
+  const handleTagClick = useCallback((tag) => {
+    // Navigate to browse page with tag search
+    navigate(`/browse?search=${encodeURIComponent(tag)}`)
+  }, [navigate])
+
   if (!rsid) {
     return <Navigate to="/" replace />
   }
@@ -445,6 +463,7 @@ function SnpFullPageWrapper() {
       rsid={rsid}
       onClose={handleClose}
       onSnpClick={handleSnpClick}
+      onTagClick={handleTagClick}
     />
   )
 }

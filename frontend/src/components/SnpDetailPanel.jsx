@@ -33,7 +33,7 @@ function TextWithCitations({ text }) {
   );
 }
 
-export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, onViewFullPage }) {
+export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, onViewFullPage, onTagClick }) {
   const queryClient = useQueryClient()
   const [explaining, setExplaining] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -358,9 +358,13 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                   </h3>
                   <div className="flex flex-wrap gap-2">
                     {snp.categories.map((cat) => (
-                      <span key={cat} className="badge badge-category capitalize">
+                      <button
+                        key={cat}
+                        onClick={() => onTagClick?.(cat)}
+                        className="badge badge-category capitalize hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors cursor-pointer"
+                      >
                         {cat}
-                      </span>
+                      </button>
                     ))}
                   </div>
                 </div>
