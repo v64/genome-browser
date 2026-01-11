@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { LabelBadge } from './LabelBadge';
 import { api } from '../api/client';
@@ -15,6 +15,9 @@ export default function GenomeQuery({
   setError
 }) {
   const [labels, setLabels] = useState({});
+  const [improvedSnps, setImprovedSnps] = useState({});
+  const [pendingCount, setPendingCount] = useState(0);
+  const pollIntervalRef = useRef(null);
 
   // Fetch labels when results change
   useEffect(() => {
@@ -26,6 +29,92 @@ export default function GenomeQuery({
     }
   }, [results]);
 
+  // Poll for improvements when there are pending improvements
+  useEffect(() => {
+    const pending = results?.pending_improvements || [];
+    setPendingCount(pending.length);
+
+    if (pending.length === 0) {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Poll every 3 seconds for improvement status
+    const checkImprovements = async () => {
+      let stillPending = 0;
+
+      for (const rsid of pending) {
+        try {
+          const annotation = await api.getAnnotation(rsid);
+          if (annotation?.improved_at || annotation?.source === 'claude') {
+            // Update improved state
+            setImprovedSnps(prev => ({
+              ...prev,
+              [rsid]: {
+                title: annotation.title,
+                improved_at: annotation.improved_at
+              }
+            }));
+
+            // Update the SNP in results with new data
+            setResults(prev => {
+              if (!prev) return prev;
+              // Check if already updated
+              const existingSnp = prev.snps_found.find(s => s.rsid === rsid);
+              if (existingSnp?.is_improved) return prev;
+
+              const updatedSnps = prev.snps_found.map(snp => {
+                if (snp.rsid === rsid) {
+                  return {
+                    ...snp,
+                    title: annotation.title,
+                    gene: annotation.gene || snp.gene,
+                    repute: annotation.repute || snp.repute,
+                    magnitude: annotation.magnitude ?? snp.magnitude,
+                    categories: annotation.categories,
+                    summary: annotation.summary,
+                    is_improved: true
+                  };
+                }
+                return snp;
+              });
+              return { ...prev, snps_found: updatedSnps };
+            });
+          } else {
+            stillPending++;
+          }
+        } catch (err) {
+          console.error(`Failed to check ${rsid}:`, err);
+          stillPending++;
+        }
+      }
+
+      setPendingCount(stillPending);
+
+      // Stop polling if all done
+      if (stillPending === 0 && pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+
+    // Start polling
+    pollIntervalRef.current = setInterval(checkImprovements, 3000);
+
+    // Initial check after 2 seconds
+    setTimeout(checkImprovements, 2000);
+
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [results?.pending_improvements]);
+
   const handleQuery = async (e) => {
     e.preventDefault();
     if (!query.trim() || loading) return;
@@ -34,6 +123,8 @@ export default function GenomeQuery({
     setError(null);
     setResults(null); // Clear old results to show loading spinner
     setLabels({}); // Clear labels too
+    setImprovedSnps({}); // Clear improved state
+    setPendingCount(0);
 
     try {
       const res = await fetch('http://localhost:8000/api/agent/query', {
@@ -152,12 +243,23 @@ export default function GenomeQuery({
                 {/* Genes with specific information */}
                 {genesWithInfo.length > 0 && (
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3 flex items-center gap-2">
-                      <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                      </svg>
-                      Your Genes ({genesWithInfo.length})
-                    </h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                        </svg>
+                        Your Genes ({genesWithInfo.length})
+                      </h3>
+                      {pendingCount > 0 && (
+                        <span className="flex items-center gap-1.5 text-xs text-purple-500 animate-pulse">
+                          <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          Enriching {pendingCount} gene{pendingCount !== 1 ? 's' : ''}...
+                        </span>
+                      )}
+                    </div>
                     <div className="space-y-3">
                       {genesWithInfo.map((snp) => (
                         <div
@@ -166,7 +268,7 @@ export default function GenomeQuery({
                           className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:border-purple-300 dark:hover:border-purple-600 hover:shadow-md cursor-pointer transition-all"
                         >
                           {/* Header row */}
-                          <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-2">
                               <span className="font-mono text-sm text-purple-600 dark:text-purple-400 font-semibold">
                                 {snp.rsid}
@@ -181,11 +283,30 @@ export default function GenomeQuery({
                                   Chr {snp.chromosome}
                                 </span>
                               )}
+                              {snp.is_improved ? (
+                                <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
+                                  ✓ enriched
+                                </span>
+                              ) : results.pending_improvements?.includes(snp.rsid) && (
+                                <span className="flex items-center gap-1 px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 rounded text-xs">
+                                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                  </svg>
+                                  Improving...
+                                </span>
+                              )}
                             </div>
                             <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                             </svg>
                           </div>
+                          {/* Title */}
+                          {snp.title && (
+                            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                              {snp.title}
+                            </p>
+                          )}
 
                           {/* Genotype badge */}
                           <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -208,6 +329,28 @@ export default function GenomeQuery({
                               </span>
                             )}
                           </div>
+
+                          {/* Tags */}
+                          {snp.categories && (() => {
+                            try {
+                              const cats = typeof snp.categories === 'string' ? JSON.parse(snp.categories) : snp.categories;
+                              if (Array.isArray(cats) && cats.length > 0) {
+                                return (
+                                  <div className="flex flex-wrap gap-1 mb-2">
+                                    {cats.map((cat, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs"
+                                      >
+                                        {cat}
+                                      </span>
+                                    ))}
+                                  </div>
+                                );
+                              }
+                            } catch (e) {}
+                            return null;
+                          })()}
 
                           {/* Interpretation */}
                           {snp.interpretation && (
@@ -245,6 +388,12 @@ export default function GenomeQuery({
                           <span className="px-1 py-0.5 bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded text-xs font-mono">
                             {snp.genotype}
                           </span>
+                          {results.pending_improvements?.includes(snp.rsid) && !snp.is_improved && (
+                            <svg className="w-3 h-3 animate-spin text-purple-500" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                          )}
                         </button>
                       ))}
                     </div>

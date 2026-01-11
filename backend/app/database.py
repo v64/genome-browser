@@ -35,7 +35,8 @@ async def init_db():
                 source TEXT DEFAULT 'snpedia',
                 original_summary TEXT,
                 original_genotype_info TEXT,
-                improved_at TIMESTAMP
+                improved_at TIMESTAMP,
+                title TEXT
             )
         """)
 
@@ -54,6 +55,10 @@ async def init_db():
             pass
         try:
             await db.execute("ALTER TABLE annotations ADD COLUMN improved_at TIMESTAMP")
+        except:
+            pass
+        try:
+            await db.execute("ALTER TABLE annotations ADD COLUMN title TEXT")
         except:
             pass
 
@@ -199,7 +204,7 @@ async def search_snps(
         # Build the query
         base_query = """
             SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories,
-                   a.genotype_info, a.ref_urls, a.fetched_at,
+                   a.genotype_info, a.ref_urls, a.fetched_at, a.title,
                    CASE WHEN f.rsid IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
                    CASE WHEN a.rsid IS NOT NULL THEN 1 ELSE 0 END as has_annotation
             FROM snps s
@@ -212,10 +217,10 @@ async def search_snps(
 
         if search:
             conditions.append("""
-                (s.rsid LIKE ? OR a.gene LIKE ? OR a.summary LIKE ? OR a.categories LIKE ?)
+                (s.rsid LIKE ? OR a.gene LIKE ? OR a.summary LIKE ? OR a.categories LIKE ? OR a.title LIKE ?)
             """)
             search_pattern = f"%{search}%"
-            params.extend([search_pattern, search_pattern, search_pattern, search_pattern])
+            params.extend([search_pattern, search_pattern, search_pattern, search_pattern, search_pattern])
 
         if chromosome:
             conditions.append("s.chromosome = ?")
@@ -292,6 +297,7 @@ async def improve_annotation(
     summary: Optional[str] = None,
     genotype_info: Optional[dict] = None,
     categories: Optional[list[str]] = None,
+    title: Optional[str] = None,
     source: str = "claude"
 ) -> bool:
     """Improve an annotation, preserving the original."""
@@ -339,6 +345,10 @@ async def improve_annotation(
                     all_cats.append(cat.lower())
             updates.append("categories = ?")
             params.append(json.dumps(all_cats))
+
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
 
         params.append(rsid)
 
@@ -785,7 +795,7 @@ async def get_snp_full_context(rsid: str) -> Optional[dict]:
         query = """
             SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories,
                    a.genotype_info, a.ref_urls, a.source as annotation_source,
-                   a.original_summary, a.original_genotype_info
+                   a.original_summary, a.original_genotype_info, a.title
             FROM snps s
             LEFT JOIN annotations a ON s.rsid = a.rsid
             WHERE s.rsid = ?
@@ -819,7 +829,7 @@ async def query_snps_advanced(
 
         query = """
             SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories,
-                   a.genotype_info, a.ref_urls, a.source as annotation_source
+                   a.genotype_info, a.ref_urls, a.source as annotation_source, a.title
             FROM snps s
             LEFT JOIN annotations a ON s.rsid = a.rsid
         """

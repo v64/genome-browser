@@ -168,8 +168,13 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
               </h2>
               {snp?.source && getSourceBadge(snp.source)}
             </div>
+            {snp?.title && (
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {snp.title}
+              </p>
+            )}
             {snp?.gene && (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 Gene: {snp.gene}
               </p>
             )}

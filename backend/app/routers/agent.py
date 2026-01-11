@@ -23,6 +23,8 @@ class QueryResponse(BaseModel):
     claude_response: str
     snps_found: list[dict]
     interpretations: list[dict]
+    pending_improvements: list[str] = []
+    genotypes_requested: list[str] = []
 
 
 @router.get("/status")

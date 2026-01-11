@@ -1,23 +1,23 @@
 import os
 import re
 import json
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from typing import Optional
 from . import database
 from . import snpedia
 
-# Initialize client (will use ANTHROPIC_API_KEY env var)
-client: Optional[Anthropic] = None
+# Initialize async client (will use ANTHROPIC_API_KEY env var)
+client: Optional[AsyncAnthropic] = None
 
 
-def get_client() -> Anthropic:
-    """Get or create the Anthropic client."""
+def get_client() -> AsyncAnthropic:
+    """Get or create the async Anthropic client."""
     global client
     if client is None:
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
-        client = Anthropic(api_key=api_key)
+        client = AsyncAnthropic(api_key=api_key)
     return client
 
 
@@ -135,7 +135,7 @@ async def chat(
     conversation_history: list[dict] = None,
     rag_context: str = "",
     snp_context: str = "",
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-sonnet-4-5"
 ) -> dict:
     """Send a message to Claude and get a response."""
     anthropic = get_client()
@@ -160,7 +160,7 @@ async def chat(
         "content": message
     })
 
-    response = anthropic.messages.create(
+    response = await anthropic.messages.create(
         model=model,
         max_tokens=2048,
         system=get_system_prompt(snp_count, rag_context, snp_context),
@@ -214,7 +214,7 @@ Be specific and cite the rsID. If the local database information seems outdated 
     return await chat(message, snp_context=snp_context)
 
 
-async def improve_annotation(rsid: str, genotype: str) -> dict:
+async def improve_annotation(rsid: str, genotype: str, custom_instructions: str = None) -> dict:
     """Ask Claude to create a comprehensive summary with all available context and citations."""
     snp_data = await database.get_snp_full_context(rsid)
 
@@ -336,21 +336,28 @@ Content: {str(content)[:1500]}
 {all_context}
 
 Your task:
-1. Create a thorough summary that covers EVERYTHING we know about this SNP - from the base annotation AND from all the additional context (conversations about traits, conditions, behaviors, etc.)
-2. Include CITATIONS in your summary using [cite:SOURCE_ID] format wherever you reference information from a specific source
-3. For each genotype variant, provide comprehensive explanations that incorporate all relevant context
-4. Provide rich TAGS that describe what this SNP is related to - be generous with tags!
+1. Create a SHORT DESCRIPTIVE TITLE (3-6 words) that captures the essence of what this SNP affects - like a headline
+2. Create a thorough summary that covers EVERYTHING we know about this SNP - from the base annotation AND from all the additional context (conversations about traits, conditions, behaviors, etc.)
+3. Include CITATIONS in your summary using [cite:SOURCE_ID] format wherever you reference information from a specific source
+4. For each genotype variant, provide comprehensive explanations that incorporate all relevant context
+5. Provide rich TAGS that describe what this SNP is related to - be generous with tags!
 
 IMPORTANT: Your summary should be comprehensive - if there's information in the context about how this SNP relates to specific traits (like mathematical ability, caffeine sensitivity, stress response, etc.), include that with citations!
 
 Return your response as JSON with this exact format:
 {{
+    "title": "Short Descriptive Title Here",
     "summary": "Your comprehensive summary here with [cite:knowledge_123] inline citations",
     "genotype_info": {{
         {example_genotypes.replace('"', '')}: "Use the correct alleles shown in the existing annotations"
     }},
     "tags": ["tag1", "tag2", "tag3", ...]
 }}
+
+TITLE GUIDELINES:
+- 3-6 words that capture what this SNP is most known for
+- Examples: "Caffeine Metabolism Speed", "Bitter Taste Perception", "Alzheimer's Risk Factor", "Muscle Performance Type", "Vitamin D Processing"
+- Be specific and descriptive, not generic
 
 TAGS GUIDELINES - Be generous and specific! Include tags for:
 - Body systems: "brain", "heart", "liver", "immune system", "nervous system", "metabolism"
@@ -363,10 +370,21 @@ Use lowercase for all tags. Aim for 5-15 relevant tags per SNP.
 
 CRITICAL: Use ONLY the alleles that appear in the existing genotype annotations (check the genotype_info keys above). If the annotations use C/T alleles, your genotype_info keys MUST be CC, CT, TT - NOT AA, AG, GG. The user's genotype to highlight is: {display_genotype}
 
+GENOTYPE_INFO STYLE: Write genotype explanations in an encyclopedic, third-person style. Do NOT use phrases like "YOUR GENOTYPE", "You have", "This is your result", etc. Instead write neutrally, e.g., "CC carriers typically..." or "This genotype is associated with..." The UI already shows which genotype belongs to the user.
+
 Only include genotypes that are actually relevant for this SNP. Make the language accessible but thorough. The goal is for this summary to be the definitive reference for everything we know about this SNP."""
 
-    response = anthropic.messages.create(
-        model="claude-sonnet-4-20250514",
+    # Add custom instructions if provided
+    if custom_instructions and custom_instructions.strip():
+        message += f"""
+
+**SPECIAL USER REQUEST:**
+{custom_instructions.strip()}
+
+Please prioritize addressing this specific request while still providing the complete JSON response format."""
+
+    response = await anthropic.messages.create(
+        model="claude-sonnet-4-5",
         max_tokens=2048,
         messages=[{"role": "user", "content": message}]
     )
@@ -386,8 +404,12 @@ Only include genotypes that are actually relevant for this SNP. Make the languag
                 # Ensure lowercase, dedupe, strip whitespace
                 tags = list(set(tag.lower().strip() for tag in tags if isinstance(tag, str) and tag.strip()))
 
+            # Extract title
+            title = improved.get("title", "").strip()
+
             return {
                 "rsid": rsid,
+                "title": title if title else None,
                 "improved_summary": improved.get("summary"),
                 "improved_genotype_info": improved.get("genotype_info", {}),
                 "tags": tags,
@@ -450,8 +472,8 @@ Return your response as JSON:
     "explanation_template": "For each result, explain: [what to highlight about each SNP]"
 }}"""
 
-    response = anthropic.messages.create(
-        model="claude-sonnet-4-20250514",
+    response = await anthropic.messages.create(
+        model="claude-sonnet-4-5",
         max_tokens=1024,
         messages=[{"role": "user", "content": message}]
     )
@@ -499,8 +521,8 @@ Return as JSON array:
     {{"rsid": "rs123", "relevance": "Why this SNP is relevant to the query", "interpretation": "What their genotype means"}}
 ]"""
 
-                explain_response = anthropic.messages.create(
-                    model="claude-sonnet-4-20250514",
+                explain_response = await anthropic.messages.create(
+                    model="claude-sonnet-4-5",
                     max_tokens=2048,
                     messages=[{"role": "user", "content": explain_message}]
                 )

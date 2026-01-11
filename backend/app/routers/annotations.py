@@ -9,6 +9,7 @@ router = APIRouter(prefix="/api/annotations", tags=["annotations"])
 
 class ImproveRequest(BaseModel):
     apply: bool = True  # Whether to save the improvement to the database
+    instructions: Optional[str] = None  # Custom instructions for Claude
 
 
 class EditRequest(BaseModel):
@@ -56,19 +57,21 @@ async def improve_annotation(rsid: str, request: ImproveRequest = None):
         )
 
     try:
-        result = await claude_service.improve_annotation(rsid, snp["genotype"])
+        custom_instructions = request.instructions if request else None
+        result = await claude_service.improve_annotation(rsid, snp["genotype"], custom_instructions)
 
         if "error" in result:
             raise HTTPException(status_code=500, detail=result["error"])
 
         applied = False
         if request and request.apply:
-            # Save the improved annotation with tags
+            # Save the improved annotation with tags and title
             await database.improve_annotation(
                 rsid=rsid,
                 summary=result.get("improved_summary"),
                 genotype_info=result.get("improved_genotype_info"),
                 categories=result.get("tags"),
+                title=result.get("title"),
                 source="claude"
             )
             applied = True
@@ -280,6 +283,7 @@ async def batch_improve_annotations(
                     summary=result.get("improved_summary"),
                     genotype_info=result.get("improved_genotype_info"),
                     categories=result.get("tags"),
+                    title=result.get("title"),
                     source="claude"
                 )
 

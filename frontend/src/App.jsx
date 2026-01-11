@@ -62,11 +62,28 @@ function AppLayout() {
   const [offset, setOffset] = useState(0)
   const [allResults, setAllResults] = useState([])
 
-  // GenomeQuery state (persists across tab switches)
-  const [genomeQueryText, setGenomeQueryText] = useState('')
+  // GenomeQuery state (persists across tab switches and navigation)
+  // Restore from sessionStorage on mount
+  const [genomeQueryText, setGenomeQueryText] = useState(() => {
+    return sessionStorage.getItem('genomeQueryText') || ''
+  })
   const [genomeQueryLoading, setGenomeQueryLoading] = useState(false)
-  const [genomeQueryResults, setGenomeQueryResults] = useState(null)
+  const [genomeQueryResults, setGenomeQueryResults] = useState(() => {
+    const saved = sessionStorage.getItem('genomeQueryResults')
+    return saved ? JSON.parse(saved) : null
+  })
   const [genomeQueryError, setGenomeQueryError] = useState(null)
+
+  // Persist query state to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('genomeQueryText', genomeQueryText)
+  }, [genomeQueryText])
+
+  useEffect(() => {
+    if (genomeQueryResults) {
+      sessionStorage.setItem('genomeQueryResults', JSON.stringify(genomeQueryResults))
+    }
+  }, [genomeQueryResults])
 
   const { toggleFavorite } = useFavorites()
   const chat = useChat()

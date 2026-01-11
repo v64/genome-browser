@@ -90,10 +90,10 @@ export const api = {
 
   // Annotations
   getAnnotation: (rsid) => fetchApi(`/annotations/${rsid}`),
-  improveAnnotation: (rsid, apply = true) =>
+  improveAnnotation: (rsid, apply = true, instructions = null) =>
     fetchApi(`/annotations/${rsid}/improve`, {
       method: 'POST',
-      body: JSON.stringify({ apply }),
+      body: JSON.stringify({ apply, instructions }),
     }),
   editAnnotation: (rsid, data) =>
     fetchApi(`/annotations/${rsid}`, {

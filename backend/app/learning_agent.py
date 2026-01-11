@@ -9,7 +9,7 @@ import re
 import json
 from datetime import datetime
 from typing import Optional, Callable
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 
 from . import database, snpedia
 
@@ -68,6 +68,99 @@ def extract_rsids(text: str) -> list[str]:
     matches = re.findall(r'\brs\d+\b', text, re.IGNORECASE)
     # Normalize to lowercase and dedupe
     return list(set(rsid.lower() for rsid in matches))
+
+
+async def auto_improve_single_snp(rsid: str, semaphore: asyncio.Semaphore) -> dict:
+    """Improve a single SNP with semaphore for concurrency control."""
+    from . import claude_service
+
+    async with semaphore:
+        try:
+            # Get the SNP to get genotype first
+            snp = await database.get_snp_by_rsid(rsid)
+            if not snp or not snp.get("genotype"):
+                return {"rsid": rsid, "status": "skipped", "reason": "no genotype"}
+
+            # Check if already improved
+            annotation = await database.get_annotation(rsid)
+            if annotation:
+                # Skip if already improved
+                if annotation.get("improved_at") or annotation.get("source") in ("claude", "user"):
+                    return {"rsid": rsid, "status": "skipped", "reason": "already improved"}
+            # If no annotation exists, we'll create one via Claude
+
+            log("system", f"Auto-improving {rsid}...")
+
+            # Run the improvement
+            result = await claude_service.improve_annotation(rsid, snp["genotype"])
+
+            if "error" not in result:
+                # Save the improved annotation
+                await database.improve_annotation(
+                    rsid=rsid,
+                    summary=result.get("improved_summary"),
+                    genotype_info=result.get("improved_genotype_info"),
+                    categories=result.get("tags"),
+                    title=result.get("title"),
+                    source="claude"
+                )
+                log("system", f"Auto-improved {rsid}: {result.get('title', 'no title')}")
+
+                # Log to data log
+                await database.log_data(
+                    source="claude",
+                    data_type="auto_improvement",
+                    content=result.get("improved_summary", ""),
+                    reference_id=rsid,
+                    metadata={"title": result.get("title"), "tags": result.get("tags")}
+                )
+                return {"rsid": rsid, "status": "improved", "title": result.get("title")}
+            else:
+                log("error", f"Failed to auto-improve {rsid}: {result.get('error')}")
+                return {"rsid": rsid, "status": "error", "reason": result.get("error")}
+
+        except Exception as e:
+            log("error", f"Error auto-improving {rsid}: {str(e)}")
+            return {"rsid": rsid, "status": "error", "reason": str(e)}
+
+
+async def auto_improve_unimproved_snps(rsids: list[str]):
+    """
+    Background task to run Claude improve on SNPs that haven't been improved yet.
+    Runs improvements in parallel with concurrency limit.
+    """
+    log("system", f"Background auto-improve started for {len(rsids)} SNPs: {', '.join(rsids)}")
+
+    if not rsids:
+        log("system", "No rsids provided, exiting")
+        return
+
+    try:
+        # Limit to 10 SNPs and 3 concurrent improvements
+        rsids_to_improve = rsids[:10]
+        semaphore = asyncio.Semaphore(3)
+
+        log("system", f"Starting improvements for: {', '.join(rsids_to_improve)}")
+
+        # Run all improvements in parallel
+        tasks = [auto_improve_single_snp(rsid, semaphore) for rsid in rsids_to_improve]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Log each result
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                log("error", f"  {rsids_to_improve[i]}: Exception - {str(result)}")
+            elif isinstance(result, dict):
+                log("system", f"  {rsids_to_improve[i]}: {result.get('status')} - {result.get('reason', result.get('title', ''))}")
+            else:
+                log("error", f"  {rsids_to_improve[i]}: Unknown result type - {result}")
+
+        # Log summary
+        improved = sum(1 for r in results if isinstance(r, dict) and r.get("status") == "improved")
+        log("system", f"=== AUTO-IMPROVE COMPLETE: {improved}/{len(rsids_to_improve)} SNPs improved ===")
+
+    except Exception as e:
+        log("error", f"=== AUTO-IMPROVE TASK FAILED: {str(e)} ===")
 
 
 async def auto_fetch_snpedia_for_rsids(rsids: list[str]):
@@ -172,7 +265,7 @@ async def query_claude(prompt: str, system_context: str = None) -> str:
     """Send a query to Claude and return the response. All exchanges are persisted."""
     import os
 
-    client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     system = system_context or """You are a genetics research assistant. When discussing SNPs,
 always mention specific rsIDs (like rs12345). Be concise but informative."""
@@ -181,8 +274,8 @@ always mention specific rsIDs (like rs12345). Be concise but informative."""
     await log_async("user", prompt)
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        response = await client.messages.create(
+            model="claude-sonnet-4-5",
             max_tokens=2000,
             system=system,
             messages=[{"role": "user", "content": prompt}]
@@ -203,7 +296,7 @@ always mention specific rsIDs (like rs12345). Be concise but informative."""
             metadata={
                 "prompt": prompt,
                 "rsids_mentioned": rsids_found,
-                "model": "claude-sonnet-4-20250514",
+                "model": "claude-sonnet-4-5",
                 "tokens_used": getattr(response.usage, 'output_tokens', None)
             }
         )
@@ -386,12 +479,11 @@ async def process_generic_query(query: str) -> dict:
     4. Return structured results
     """
     import os
-    from anthropic import Anthropic
 
     log("system", f"Processing query: {query}")
     agent_state["current_task"] = f"Processing: {query}"
 
-    client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
     # System prompt that enables Claude to request genome data
     system_prompt = """You are a genetics research assistant with access to the user's 23andMe genome data.
@@ -423,8 +515,8 @@ If you don't need to look up any genotypes (the question is general knowledge or
 
     # First API call
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        response = await client.messages.create(
+            model="claude-sonnet-4-5",
             max_tokens=2000,
             system=system_prompt,
             messages=messages
@@ -457,8 +549,8 @@ If you don't need to look up any genotypes (the question is general knowledge or
 
         # Second API call with genotype data
         try:
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
+            response = await client.messages.create(
+                model="claude-sonnet-4-5",
                 max_tokens=2000,
                 system=system_prompt + "\n\nYou have now received the user's genotype data. Provide a personalized analysis based on their specific results. Do NOT include another GENOTYPE_REQUEST.",
                 messages=messages
@@ -495,7 +587,7 @@ If you don't need to look up any genotypes (the question is general knowledge or
             "prompt": query,
             "rsids_mentioned": rsids,
             "genotypes_looked_up": requested_rsids,
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-5",
             "multi_turn": len(requested_rsids) > 0
         }
     )
@@ -511,6 +603,33 @@ If you don't need to look up any genotypes (the question is general knowledge or
     # Auto-fetch SNPedia data for mentioned rsIDs in background
     if all_rsids:
         asyncio.create_task(auto_fetch_snpedia_for_rsids(all_rsids))
+
+    # Check which SNPs need improvement and start auto-improve in background
+    pending_improvements = []
+    if all_rsids:
+        for rsid in all_rsids[:20]:  # Match the results limit
+            # First check if the SNP is in the user's genome
+            snp = await database.get_snp_by_rsid(rsid)
+            if not snp or not snp.get("genotype"):
+                continue
+
+            annotation = await database.get_annotation(rsid)
+            # Queue for improvement if: no annotation, or has annotation but not improved yet
+            if not annotation:
+                pending_improvements.append(rsid)
+            elif not annotation.get("improved_at") and annotation.get("source") not in ("claude", "user"):
+                pending_improvements.append(rsid)
+
+        if pending_improvements:
+            log("system", f"Queuing {len(pending_improvements)} SNPs for auto-improve")
+            # Use ensure_future and keep reference to prevent garbage collection
+            task = asyncio.ensure_future(auto_improve_unimproved_snps(pending_improvements))
+            def on_task_done(t):
+                if t.exception():
+                    log("error", f"Background improve task failed: {t.exception()}")
+            task.add_done_callback(on_task_done)
+
+    results["pending_improvements"] = pending_improvements
 
     # Look up genotypes and get interpretations for SNPs mentioned
     for rsid in all_rsids[:20]:  # Limit to 20 SNPs per query
@@ -533,6 +652,10 @@ If you don't need to look up any genotypes (the question is general knowledge or
                 snp_result["repute"] = annotation.get("repute")
                 snp_result["magnitude"] = annotation.get("magnitude")
                 snp_result["gene"] = annotation.get("gene")
+                snp_result["title"] = annotation.get("title")
+                snp_result["categories"] = annotation.get("categories")
+                if annotation.get("improved_at") or annotation.get("source") in ("claude", "user"):
+                    snp_result["is_improved"] = True
 
             # Get personalized interpretation
             try:
