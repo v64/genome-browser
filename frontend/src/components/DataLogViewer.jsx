@@ -14,6 +14,8 @@ export default function DataLogViewer({ onSnpClick }) {
   const [lastCount, setLastCount] = useState(0);
   const [chatMessages, setChatMessages] = useState([]);
   const [showChat, setShowChat] = useState(true);
+  const [recentImprovements, setRecentImprovements] = useState([]);
+  const [showImprovements, setShowImprovements] = useState(true);
   const listRef = useRef(null);
   const chatEndRef = useRef(null);
   const isAtBottomRef = useRef(true); // Track if user is scrolled to bottom
@@ -35,6 +37,16 @@ export default function DataLogViewer({ onSnpClick }) {
       setChatMessages(data.messages || []);
     } catch (err) {
       console.error('Failed to fetch chat history:', err);
+    }
+  };
+
+  const fetchRecentImprovements = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/api/annotations/recent/improved?limit=20');
+      const data = await res.json();
+      setRecentImprovements(data.improvements || []);
+    } catch (err) {
+      console.error('Failed to fetch recent improvements:', err);
     }
   };
 
@@ -76,6 +88,7 @@ export default function DataLogViewer({ onSnpClick }) {
     fetchStats();
     fetchEntries();
     fetchChatMessages();
+    fetchRecentImprovements();
   }, []);
 
   // Handle chat scroll - track if user is at bottom
@@ -102,6 +115,7 @@ export default function DataLogViewer({ onSnpClick }) {
       fetchStats();
       fetchEntries(true);
       fetchChatMessages();
+      fetchRecentImprovements();
     }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(interval);
@@ -170,6 +184,100 @@ export default function DataLogViewer({ onSnpClick }) {
           </div>
         </div>
       )}
+
+      {/* Recently Improved SNPs */}
+      <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <button
+          onClick={() => setShowImprovements(!showImprovements)}
+          className="w-full px-4 py-3 bg-gray-900 border-b border-gray-700 flex justify-between items-center hover:bg-gray-800 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-900/50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="font-medium text-white">Recently Improved SNPs</h3>
+            {autoRefresh && recentImprovements.length > 0 && (
+              <span className="flex items-center gap-1 text-xs text-green-400">
+                <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                Live
+              </span>
+            )}
+            <span className="text-sm text-gray-400">({recentImprovements.length} recent)</span>
+          </div>
+          <svg
+            className={`w-5 h-5 text-gray-400 transition-transform ${showImprovements ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {showImprovements && (
+          <div className="max-h-[400px] overflow-y-auto">
+            {recentImprovements.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">
+                <p>No recently improved SNPs yet.</p>
+                <p className="text-sm mt-1">Improvements will appear here in real-time.</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-900 sticky top-0">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">SNP</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Title</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Summary</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Improved</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {recentImprovements.map((imp) => (
+                    <tr
+                      key={imp.rsid}
+                      className="hover:bg-gray-700/50 cursor-pointer"
+                      onClick={() => onSnpClick?.(imp.rsid)}
+                    >
+                      <td className="px-4 py-3">
+                        <span className="font-mono text-blue-400 hover:text-blue-300">
+                          {imp.rsid}
+                        </span>
+                        {imp.genotype && (
+                          <span className="ml-2 px-1.5 py-0.5 bg-gray-700 text-gray-300 rounded text-xs">
+                            {imp.genotype}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-white font-medium">
+                          {imp.title || imp.rsid}
+                        </span>
+                        {imp.gene && (
+                          <span className="ml-2 text-xs text-purple-400">
+                            {imp.gene}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-gray-300 text-sm">
+                          {truncate(imp.summary, 100)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-xs text-gray-400">
+                          {imp.improved_at ? new Date(imp.improved_at).toLocaleString() : '-'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Live Claude Conversation */}
       <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">

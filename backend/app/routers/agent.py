@@ -10,6 +10,7 @@ from typing import Optional
 
 from .. import learning_agent
 from .. import database
+from .. import gene_discovery
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
 
@@ -167,3 +168,43 @@ async def get_query_suggestions():
             ],
             "error": str(e)
         }
+
+
+# Gene Discovery Worker Endpoints
+
+@router.get("/discovery/status")
+async def get_discovery_status():
+    """Get current state of the gene discovery worker."""
+    return gene_discovery.get_status()
+
+
+@router.post("/discovery/start")
+async def start_discovery():
+    """Manually start the discovery worker if not running."""
+    import asyncio
+    if gene_discovery.discovery_state["is_running"]:
+        return {"status": "already_running"}
+
+    # Start in background
+    asyncio.create_task(gene_discovery.start_discovery_worker())
+    return {"status": "starting"}
+
+
+@router.post("/discovery/stop")
+async def stop_discovery():
+    """Stop the discovery worker."""
+    gene_discovery.stop_worker()
+    return {"status": "stopping"}
+
+
+@router.get("/discovery/logs")
+async def get_discovery_logs(limit: int = 100):
+    """Get recent discovery worker logs."""
+    return {"logs": gene_discovery.get_logs(limit)}
+
+
+@router.post("/discovery/clear-explored")
+async def clear_explored_genes():
+    """Clear the explored genes set to allow re-exploration of all genes."""
+    gene_discovery.clear_explored()
+    return {"status": "cleared"}

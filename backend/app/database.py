@@ -1366,3 +1366,164 @@ async def get_activity_stats() -> dict:
             stats["knowledge_entries"] = (await cursor.fetchone())[0]
 
         return stats
+
+
+# Gene discovery functions
+
+async def get_all_known_genes() -> list[str]:
+    """Get all unique gene names from annotations."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT DISTINCT gene FROM annotations WHERE gene IS NOT NULL AND gene != '' ORDER BY gene"
+        ) as cursor:
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+
+async def get_snps_by_gene(gene: str) -> list[dict]:
+    """Get all SNPs for a given gene name (case-insensitive)."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype,
+                   a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   a.genotype_info, a.improved_at, a.source, a.title
+            FROM snps s
+            LEFT JOIN annotations a ON s.rsid = a.rsid
+            WHERE UPPER(a.gene) = UPPER(?)
+            ORDER BY a.magnitude DESC NULLS LAST
+        """
+        async with db.execute(query, (gene,)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["genotype_info"] = json.loads(r["genotype_info"]) if r["genotype_info"] else {}
+                results.append(r)
+            return results
+
+
+async def get_unimproved_snps_for_gene(gene: str) -> list[dict]:
+    """Get SNPs for a gene that haven't been improved yet (case-insensitive)."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype,
+                   a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   a.genotype_info, a.improved_at, a.source, a.title
+            FROM snps s
+            LEFT JOIN annotations a ON s.rsid = a.rsid
+            WHERE UPPER(a.gene) = UPPER(?)
+              AND (a.improved_at IS NULL AND a.source NOT IN ('claude', 'user'))
+            ORDER BY a.magnitude DESC NULLS LAST
+        """
+        async with db.execute(query, (gene,)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["genotype_info"] = json.loads(r["genotype_info"]) if r["genotype_info"] else {}
+                results.append(r)
+            return results
+
+
+async def search_snps_by_gene_name(gene: str) -> list[dict]:
+    """Search for SNPs where the gene field contains the gene name (partial match)."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype,
+                   a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   a.genotype_info, a.improved_at, a.source, a.title
+            FROM snps s
+            LEFT JOIN annotations a ON s.rsid = a.rsid
+            WHERE UPPER(a.gene) LIKE UPPER(?)
+            ORDER BY a.magnitude DESC NULLS LAST
+            LIMIT 50
+        """
+        async with db.execute(query, (f"%{gene}%",)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["genotype_info"] = json.loads(r["genotype_info"]) if r["genotype_info"] else {}
+                results.append(r)
+            return results
+
+
+async def get_random_unexplored_snp(explored_rsids: set = None) -> Optional[dict]:
+    """Get a random SNP that hasn't been improved yet, preferring ones with genotypes."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        # Get a random unimproved SNP with a genotype
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype,
+                   a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   a.genotype_info, a.improved_at, a.source, a.title
+            FROM snps s
+            LEFT JOIN annotations a ON s.rsid = a.rsid
+            WHERE s.genotype IS NOT NULL
+              AND s.genotype != '--'
+              AND (a.improved_at IS NULL OR a.improved_at = '')
+              AND (a.source IS NULL OR a.source NOT IN ('claude', 'user'))
+            ORDER BY RANDOM()
+            LIMIT 10
+        """
+        async with db.execute(query) as cursor:
+            rows = await cursor.fetchall()
+            for row in rows:
+                r = dict(row)
+                # Skip if in explored set
+                if explored_rsids and r["rsid"] in explored_rsids:
+                    continue
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["genotype_info"] = json.loads(r["genotype_info"]) if r["genotype_info"] else {}
+                return r
+            return None
+
+
+async def get_random_snp_without_annotation() -> Optional[dict]:
+    """Get a random SNP that has no annotation at all (completely unexplored)."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype
+            FROM snps s
+            LEFT JOIN annotations a ON s.rsid = a.rsid
+            WHERE s.genotype IS NOT NULL
+              AND s.genotype != '--'
+              AND a.rsid IS NULL
+            ORDER BY RANDOM()
+            LIMIT 1
+        """
+        async with db.execute(query) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+
+
+async def get_recently_improved_annotations(limit: int = 20) -> list[dict]:
+    """Get recently improved annotations with title, summary, gene info."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        query = """
+            SELECT a.rsid, a.title, a.summary, a.gene, a.magnitude, a.repute,
+                   a.categories, a.improved_at, a.source, s.genotype
+            FROM annotations a
+            LEFT JOIN snps s ON a.rsid = s.rsid
+            WHERE a.improved_at IS NOT NULL
+            ORDER BY a.improved_at DESC
+            LIMIT ?
+        """
+        async with db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                results.append(r)
+            return results

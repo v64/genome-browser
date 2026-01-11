@@ -228,6 +228,13 @@ async def revert_annotation(rsid: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/recent/improved")
+async def get_recently_improved(limit: int = 20):
+    """Get recently improved annotations for the data log display."""
+    improvements = await database.get_recently_improved_annotations(limit)
+    return {"improvements": improvements, "count": len(improvements)}
+
+
 @router.get("/{rsid}")
 async def get_annotation(rsid: str):
     """Get annotation details including improvement status."""

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import database
 from .genome_parser import parse_23andme_file, find_genome_file
 from .categories import get_all_priority_snps
-from . import snpedia, claude_service
+from . import snpedia, claude_service, gene_discovery
 
 from .routers import snps, categories, sync, favorites, export, chat, knowledge, annotations, search, agent, labels
 
@@ -45,8 +45,13 @@ async def lifespan(app: FastAPI):
     # Start background sync for priority SNPs
     asyncio.create_task(initial_sync())
 
+    # Start gene discovery worker (runs after initial sync completes)
+    asyncio.create_task(start_gene_discovery_delayed())
+
     yield
 
+    # Stop the gene discovery worker
+    gene_discovery.stop_worker()
     print("Shutting down...")
 
 
@@ -64,6 +69,19 @@ async def initial_sync():
             if (i + 1) % 10 == 0:
                 print(f"  Fetched {i + 1}/{len(to_fetch)} annotations...")
         print("Priority sync complete!")
+
+
+async def start_gene_discovery_delayed():
+    """Start the gene discovery worker after a delay to let initial sync complete."""
+    # Wait for initial sync to get some data first
+    await asyncio.sleep(30)
+
+    # Only start if Claude is configured
+    if claude_service.is_configured():
+        print("[DISCOVERY] Starting gene discovery background worker...")
+        await gene_discovery.start_discovery_worker()
+    else:
+        print("[DISCOVERY] Claude API not configured - gene discovery worker disabled")
 
 
 app = FastAPI(

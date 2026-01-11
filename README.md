@@ -6,13 +6,50 @@ A personal genome exploration tool that combines your 23andMe genetic data with 
 
 ## Features
 
-- **Browse Your Genome**: Search and filter your ~600,000+ SNPs by chromosome, gene, category, or keyword
-- **AI-Powered Insights**: Ask Claude anything about your genome ("What genes affect my caffeine metabolism?") and get personalized answers based on your actual genotypes
+### Core Features
+- **Browse Your Genome**: Search and filter your ~600,000+ SNPs by chromosome, gene, category, tag, or keyword
+- **AI-Powered Insights**: Ask Claude anything about your genome and get personalized answers based on your actual genotypes
 - **SNPedia Integration**: Automatically fetches scientific annotations from SNPedia for context
 - **Smart Enrichment**: Claude automatically improves SNP annotations with titles, tags, and detailed genotype explanations
 - **Knowledge Base**: Every AI interaction is saved and searchable, building your personal genetic knowledge base over time
-- **Favorites & Labels**: Mark important variants and label your genotypes (normal, risk, protective, etc.)
+
+### Dashboard
+- **Risk Dashboard**: Visual overview of your genetic variants by category
+- **AI Query Suggestions**: Claude analyzes your genome activity and suggests personalized questions to explore
+- **Activity Stats**: Track your exploration progress and knowledge base growth
+
+### Query System
+- **Natural Language Queries**: Ask questions like "What genes affect my caffeine metabolism?" or "Do I have any MTHFR mutations?"
+- **Query History**: Browse all your previous queries with full responses, mentioned SNPs, and the ability to re-run any query
+- **Persistent Query State**: Your query text and results persist across tab switches and navigation
+
+### Browse & Filter
+- **Tag Filtering**: Filter SNPs by tags (health, metabolism, cognition, etc.) from the sidebar or by clicking tags on any SNP
+- **Label Filtering**: View SNPs by your assigned labels (normal, abnormal, rare, protective)
+- **Category Filtering**: Filter by predefined categories (Health, Traits, Intelligence, Ancestry)
+- **Chromosome Browser**: Jump to SNPs on specific chromosomes
+- **Persistent Browse State**: Your search results persist when navigating to SNP details and back
+
+### SNP Details
+- **Full Page View**: Detailed SNP information with genotype interpretation, citations, and related genes
+- **Improve with Claude**: One-click AI enhancement of any SNP annotation
+- **Custom Instructions**: Provide specific instructions when improving annotations
+- **Citation Tracking**: See sources for all information with clickable references
+
+### Organization
+- **Favorites**: Star important SNPs for quick access
+- **Labels**: Classify your genotypes (normal, abnormal, rare, protective, uncertain)
+- **Data Log**: View all data ingestion activity, Claude conversations, and system events
+
+### Background Workers
+- **Gene Discovery Worker**: Continuously discovers related genes by querying Claude, finds SNPs for new genes in your data, and auto-improves them
+- **Random SNP Exploration**: Periodically explores random unannotated SNPs to seed new discoveries
+- **Priority Sync**: Automatically fetches annotations for important SNPs on startup
+
+### Additional Features
 - **Dark Mode**: Easy on the eyes for late-night genome browsing
+- **Export**: Download your genome data and annotations
+- **Chat Panel**: Quick chat interface for genome questions without leaving your current view
 
 ## Quick Start
 
@@ -61,6 +98,7 @@ A personal genome exploration tool that combines your 23andMe genetic data with 
    - Start the backend server on http://localhost:8000
    - Start the frontend server on http://localhost:5173
    - Import your genome data into the local database
+   - Start background workers for gene discovery and SNP enrichment
 
 5. **Open your browser**
 
@@ -82,8 +120,17 @@ Claude will search your genome, find relevant SNPs, look up your genotypes, and 
 
 Use the **Browse** tab to:
 - Search by rsID, gene name, or keyword
-- Filter by chromosome or category
+- Filter by tags using `tag:tagname` syntax in search or the sidebar
+- Filter by chromosome, category, or label
 - Click any SNP to see full details including your genotype and what it means
+
+### Query History
+
+Use the **History** tab to:
+- Browse all your previous queries
+- See full responses and mentioned SNPs
+- Click SNP links to view details
+- Re-run any previous query
 
 ### Improve Annotations
 
@@ -93,9 +140,37 @@ On any SNP detail page, click **Improve with Claude** to:
 - Get detailed genotype explanations
 - Optionally provide custom instructions for the improvement
 
+### Data Log
+
+Use the **Data Log** tab to monitor:
+- SNPedia data fetching activity
+- Claude conversations and improvements
+- Gene discovery worker progress
+- System events and errors
+
 ### Favorites
 
 Star important SNPs to save them to your favorites list for quick access.
+
+## Background Workers
+
+### Gene Discovery Worker
+
+The gene discovery worker runs automatically in the background:
+1. Starts from genes in your existing annotations
+2. Queries Claude for related genes
+3. Checks if you have SNPs for discovered genes
+4. Auto-improves any unimproved SNPs found
+5. Adds newly discovered genes to the exploration queue
+6. Periodically explores random unannotated SNPs to find new leads
+
+Monitor the worker in the console output (`./start.sh`) or via the Data Log tab.
+
+**API Endpoints:**
+- `GET /api/agent/discovery/status` - Check worker status
+- `POST /api/agent/discovery/start` - Manually start the worker
+- `POST /api/agent/discovery/stop` - Stop the worker
+- `GET /api/agent/discovery/logs` - View worker logs
 
 ## Project Structure
 
@@ -107,12 +182,20 @@ genome/
 │   │   ├── database.py   # SQLite database operations
 │   │   ├── claude_service.py  # Claude AI integration
 │   │   ├── learning_agent.py  # Background enrichment agent
+│   │   ├── gene_discovery.py  # Gene discovery worker
 │   │   ├── snpedia.py    # SNPedia data fetching
 │   │   └── routers/      # API route handlers
 │   └── requirements.txt
 ├── frontend/             # React + Vite frontend
 │   ├── src/
 │   │   ├── components/   # React components
+│   │   │   ├── RiskDashboard.jsx  # Dashboard with suggestions
+│   │   │   ├── GenomeQuery.jsx    # Query interface
+│   │   │   ├── QueryHistory.jsx   # Query history browser
+│   │   │   ├── SnpList.jsx        # SNP list with infinite scroll
+│   │   │   ├── SnpFullPage.jsx    # Full SNP detail view
+│   │   │   ├── DataLogViewer.jsx  # Data log monitor
+│   │   │   └── ...
 │   │   └── api/          # API client
 │   └── package.json
 ├── data/                 # SQLite database (created on first run)
@@ -127,6 +210,16 @@ genome/
 - **`./start.sh`** - Start both backend and frontend servers
 - **`./reset.sh`** - Clear the database and start fresh (re-imports genome data on next start)
 
+## Keyboard Shortcuts
+
+- **1** - Dashboard tab
+- **2** - Query tab
+- **3** - History tab
+- **4** - Browse tab
+- **5** - Data Log tab
+- **6** - Favorites tab
+- **Escape** - Close SNP detail panel
+
 ## Privacy & Security
 
 - **Your data stays local**: All genome data is stored in a local SQLite database on your machine
@@ -137,9 +230,9 @@ genome/
 ## Cost Considerations
 
 This app uses the Claude API which has per-token costs:
-- Queries and improvements use Claude Sonnet 4.5
-- Typical query: ~$0.01-0.05 depending on complexity
-- SNP improvement: ~$0.02-0.05 per SNP
+- **Queries and improvements**: Claude Sonnet 4.5 (~$0.01-0.05 per query)
+- **Gene discovery**: Claude Haiku 4 (~$0.001-0.01 per discovery query)
+- **SNP improvement**: ~$0.02-0.05 per SNP
 - Responses are cached in the knowledge base to avoid repeat API calls
 
 ## Troubleshooting
@@ -157,6 +250,11 @@ This app uses the Claude API which has per-token costs:
 
 **Database issues**
 - Run `./reset.sh` to clear the database and start fresh
+
+**Gene discovery not running**
+- Check console output for `[DISCOVERY]` logs
+- Verify Claude API key is configured
+- Check `/api/agent/discovery/status` endpoint
 
 ## License
 
