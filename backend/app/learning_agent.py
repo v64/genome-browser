@@ -70,6 +70,71 @@ def extract_rsids(text: str) -> list[str]:
     return list(set(rsid.lower() for rsid in matches))
 
 
+def parse_genotype_request(text: str) -> list[str]:
+    """
+    Check if Claude is requesting genotype information.
+    Returns list of rsIDs Claude wants to look up, or empty list.
+
+    Claude should format requests like:
+    GENOTYPE_REQUEST: rs123, rs456, rs789
+    """
+    match = re.search(r'GENOTYPE_REQUEST:\s*([^\n]+)', text, re.IGNORECASE)
+    if match:
+        rsids_str = match.group(1)
+        return extract_rsids(rsids_str)
+    return []
+
+
+async def lookup_genotypes_for_claude(rsids: list[str]) -> str:
+    """
+    Look up user's genotypes for a list of rsIDs and format for Claude.
+    Also includes any existing annotation summary.
+    """
+    from . import snpedia
+
+    results = []
+    for rsid in rsids[:30]:  # Limit to 30 lookups
+        snp = await database.get_snp_by_rsid(rsid)
+        annotation = await database.get_annotation(rsid)
+
+        if snp and snp.get("genotype"):
+            genotype = snp["genotype"]
+
+            # Check for strand conversion
+            display_genotype = genotype.replace(";", "").upper()
+            strand_note = ""
+            if annotation and annotation.get("genotype_info"):
+                _, matched_gt = snpedia.get_genotype_interpretation(
+                    annotation["genotype_info"],
+                    display_genotype
+                )
+                if matched_gt and matched_gt != display_genotype:
+                    strand_note = f" (reported as {display_genotype} by 23andMe, converted to {matched_gt} for opposite strand)"
+                    display_genotype = matched_gt
+
+            info = f"- {rsid}: genotype {display_genotype}{strand_note}"
+
+            # Add annotation summary if available
+            if annotation:
+                if annotation.get("gene"):
+                    info += f", gene: {annotation['gene']}"
+                if annotation.get("summary"):
+                    summary = annotation["summary"][:200]
+                    info += f"\n  Summary: {summary}..."
+                if annotation.get("genotype_info", {}).get(display_genotype):
+                    interp = annotation["genotype_info"][display_genotype][:150]
+                    info += f"\n  Your genotype meaning: {interp}..."
+
+            results.append(info)
+        else:
+            results.append(f"- {rsid}: NOT IN USER'S GENOME DATA")
+
+    if not results:
+        return "No genotype data found for the requested SNPs."
+
+    return "Here is the user's genotype data:\n\n" + "\n".join(results)
+
+
 async def query_claude(prompt: str, system_context: str = None) -> str:
     """Send a query to Claude and return the response. All exchanges are persisted."""
     import os
@@ -279,34 +344,139 @@ async def save_genotype_interpretation(rsid: str, genotype: str, interpretation:
 
 async def process_generic_query(query: str) -> dict:
     """
-    Process a generic query like "what genes are related to alcohol".
+    Process a generic query with multi-turn genome lookup support.
 
     Flow:
-    1. Ask Claude the generic question
-    2. Extract rsIDs from response
-    3. Look up user's genotype for each
-    4. Get interpretation for user's specific genotype
-    5. Return structured results
+    1. Ask Claude with instruction that it can request genome lookups
+    2. If Claude requests genotypes, look them up and continue conversation
+    3. Extract final rsIDs and provide interpretations
+    4. Return structured results
     """
+    import os
+    from anthropic import Anthropic
+
     log("system", f"Processing query: {query}")
     agent_state["current_task"] = f"Processing: {query}"
 
-    # Step 1: Ask Claude
-    response = await query_claude(query)
+    client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-    # Step 2: Extract rsIDs
-    rsids = extract_rsids(response)
-    log("system", f"Found {len(rsids)} SNPs mentioned: {', '.join(rsids[:10])}")
+    # System prompt that enables Claude to request genome data
+    system_prompt = """You are a genetics research assistant with access to the user's 23andMe genome data.
+
+When answering questions about genetics, traits, or health conditions:
+1. Be scientifically accurate but accessible
+2. Always cite specific rsIDs (like rs12345) when relevant
+3. Distinguish between well-established findings and preliminary research
+4. For health-related queries, note this is informational, not medical advice
+
+IMPORTANT - GENOME LOOKUP CAPABILITY:
+If answering the user's question would benefit from knowing their specific genotypes, you can REQUEST this information.
+To request genotype lookups, include a line in this EXACT format at the END of your response:
+
+GENOTYPE_REQUEST: rs123, rs456, rs789
+
+For example, if asked "What unusual genes do I have related to sleep?", you might first explain the key sleep-related genes, then request:
+GENOTYPE_REQUEST: rs73598374, rs1800497, rs4680, rs1801260, rs12927162
+
+I will then look up those SNPs in the user's genome and provide you with their actual genotypes.
+After receiving the genotype data, provide a personalized summary based on their specific results.
+
+If you don't need to look up any genotypes (the question is general knowledge or doesn't require personalization), just answer directly without a GENOTYPE_REQUEST line."""
+
+    messages = [{"role": "user", "content": query}]
+
+    # Log the initial query
+    await log_async("user", query)
+
+    # First API call
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=2000,
+            system=system_prompt,
+            messages=messages
+        )
+        response_text = response.content[0].text
+
+    except Exception as e:
+        await log_async("error", f"Claude API error: {str(e)}")
+        raise
+
+    # Check if Claude is requesting genotype lookups
+    requested_rsids = parse_genotype_request(response_text)
+
+    if requested_rsids:
+        log("system", f"Claude requested genotypes for: {', '.join(requested_rsids)}")
+
+        # Log Claude's initial response (with request)
+        await log_async("claude", response_text)
+
+        # Look up the genotypes
+        genotype_data = await lookup_genotypes_for_claude(requested_rsids)
+        log("system", f"Looked up {len(requested_rsids)} SNPs from genome")
+
+        # Continue conversation with genotype data
+        messages.append({"role": "assistant", "content": response_text})
+        messages.append({"role": "user", "content": genotype_data})
+
+        # Log the genotype data we're sending back to Claude
+        await log_async("user", f"[Genome Lookup]\n{genotype_data}")
+
+        # Second API call with genotype data
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2000,
+                system=system_prompt + "\n\nYou have now received the user's genotype data. Provide a personalized analysis based on their specific results. Do NOT include another GENOTYPE_REQUEST.",
+                messages=messages
+            )
+            response_text = response.content[0].text
+
+        except Exception as e:
+            await log_async("error", f"Claude API error on follow-up: {str(e)}")
+            raise
+
+    # Log final Claude response
+    await log_async("claude", response_text)
+    rsids = extract_rsids(response_text)
+
+    # Also include the requested rsids (may have more context)
+    all_rsids = list(set(rsids + requested_rsids))
+    log("system", f"Found {len(all_rsids)} SNPs total: {', '.join(all_rsids[:10])}")
 
     results = {
         "query": query,
-        "claude_response": response,
+        "claude_response": response_text,
         "snps_found": [],
-        "interpretations": []
+        "interpretations": [],
+        "genotypes_requested": requested_rsids  # Track what Claude asked for
     }
 
-    # Step 3-4: Look up genotypes and get interpretations
-    for rsid in rsids[:20]:  # Limit to 20 SNPs per query
+    # Log to unified data log
+    await database.log_data(
+        source="claude",
+        data_type="conversation",
+        content=response_text,
+        reference_id=None,
+        metadata={
+            "prompt": query,
+            "rsids_mentioned": rsids,
+            "genotypes_looked_up": requested_rsids,
+            "model": "claude-sonnet-4-20250514",
+            "multi_turn": len(requested_rsids) > 0
+        }
+    )
+
+    # Save to knowledge base
+    await database.save_knowledge(
+        query=query,
+        response=response_text,
+        snps_mentioned=all_rsids,
+        source="claude_conversation"
+    )
+
+    # Look up genotypes and get interpretations for SNPs mentioned
+    for rsid in all_rsids[:20]:  # Limit to 20 SNPs per query
         user_data = await get_user_genotype(rsid)
 
         if user_data and user_data.get("genotype"):
