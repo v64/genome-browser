@@ -188,32 +188,34 @@ export default function GenomeQuery({
       {/* Query Bar */}
       <div className="max-w-3xl mx-auto">
         <form onSubmit={handleQuery}>
-          <div className="relative">
-            <input
-              type="text"
+          <div className="space-y-3">
+            <textarea
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Ask anything about your genome..."
-              className="w-full px-5 py-4 pr-32 text-lg bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 text-gray-900 dark:text-white placeholder-gray-400"
+              rows={5}
+              className="w-full px-5 py-4 text-lg bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 text-gray-900 dark:text-white placeholder-gray-400 resize-none"
               disabled={loading}
             />
-            <button
-              type="submit"
-              disabled={loading || !query.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Querying
-                </span>
-              ) : (
-                'Query'
-              )}
-            </button>
+            <div className="flex justify-center">
+              <button
+                type="submit"
+                disabled={loading || !query.trim()}
+                className="px-6 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Querying
+                  </span>
+                ) : (
+                  'Query'
+                )}
+              </button>
+            </div>
           </div>
         </form>
 
