@@ -197,7 +197,7 @@ export default function DataLogViewer({ onSnpClick }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="font-medium text-white">Recently Improved SNPs</h3>
+            <h3 className="font-medium text-white">Recently Annotated SNPs</h3>
             {autoRefresh && recentImprovements.length > 0 && (
               <span className="flex items-center gap-1 text-xs text-green-400">
                 <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
@@ -220,8 +220,8 @@ export default function DataLogViewer({ onSnpClick }) {
           <div className="max-h-[400px] overflow-y-auto">
             {recentImprovements.length === 0 ? (
               <div className="text-center py-8 text-gray-400">
-                <p>No recently improved SNPs yet.</p>
-                <p className="text-sm mt-1">Improvements will appear here in real-time.</p>
+                <p>No recently annotated SNPs yet.</p>
+                <p className="text-sm mt-1">Annotations will appear here in real-time.</p>
               </div>
             ) : (
               <table className="w-full">
@@ -230,7 +230,7 @@ export default function DataLogViewer({ onSnpClick }) {
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">SNP</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Title</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Summary</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Improved</th>
+                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Annotated</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-700">

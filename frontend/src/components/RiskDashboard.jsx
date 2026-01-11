@@ -179,7 +179,7 @@ export function RiskDashboard({ onSnpClick }) {
           </p>
         </div>
         <div className="card p-4 bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border-blue-200 dark:border-blue-800">
-          <p className="text-sm text-blue-600 dark:text-blue-400">Claude Improved</p>
+          <p className="text-sm text-blue-600 dark:text-blue-400">Claude Annotated</p>
           <p className="text-2xl font-bold text-blue-700 dark:text-blue-300">
             {activityStats.claude_improved_snps || 0}
           </p>
@@ -225,12 +225,12 @@ export function RiskDashboard({ onSnpClick }) {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                Improving {currentlyProcessing.length}
+                Annotating {currentlyProcessing.length}
               </span>
             )}
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            These variants may warrant your review — high-impact genes not yet improved, or risk variants you haven't tracked.
+            These variants may warrant your review — high-impact genes not yet annotated, or risk variants you haven't tracked.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -275,7 +275,7 @@ export function RiskDashboard({ onSnpClick }) {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                       </svg>
-                      Improving...
+                      Annotating...
                     </div>
                   </div>
                 )}
@@ -389,7 +389,7 @@ export function RiskDashboard({ onSnpClick }) {
                     )}
                     {snp.is_improved && (
                       <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
-                        ✓ improved
+                        ✓ annotated
                       </span>
                     )}
                   </div>
@@ -521,7 +521,7 @@ export function RiskDashboard({ onSnpClick }) {
                       )}
                       {snp.is_improved && (
                         <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
-                          ✓ improved
+                          ✓ annotated
                         </span>
                       )}
                     </div>

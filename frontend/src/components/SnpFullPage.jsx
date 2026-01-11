@@ -618,7 +618,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
                     ? 'bg-purple-900/50 text-purple-300 cursor-not-allowed'
                     : 'bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700'
                 }`}
-                title="Ask Claude to improve the summary and fill in all genotype variants"
+                title="Ask Claude to annotate the summary and fill in all genotype variants"
               >
                 {improving ? (
                   <>
@@ -626,14 +626,14 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    <span>Improving...</span>
+                    <span>Annotating...</span>
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    <span>Improve with Claude</span>
+                    <span>Annotate with Claude</span>
                   </>
                 )}
               </button>
@@ -783,7 +783,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
                   </div>
                 ) : (
                   <div className="text-sm text-gray-500 italic">
-                    No summary available. Click Edit to add one, or use "Improve with Claude" to generate one.
+                    No summary available. Click Edit to add one, or use "Annotate with Claude" to generate one.
                   </div>
                 )}
               </div>
@@ -969,7 +969,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
               <div className="bg-gray-800 rounded-lg p-6 border border-gray-700 text-center">
                 <p className="text-gray-400 mb-2">No additional data available for this SNP yet.</p>
                 <p className="text-gray-500 text-sm mb-4">
-                  Click "Improve with Claude" above to generate a detailed summary and genotype information.
+                  Click "Annotate with Claude" above to generate a detailed summary and genotype information.
                 </p>
               </div>
             )}
@@ -985,10 +985,10 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
               <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              Improve with Claude
+              Annotate with Claude
             </h3>
             <p className="text-gray-400 text-sm mb-4">
-              Add specific instructions for Claude, or leave blank for a general improvement.
+              Add specific instructions for Claude, or leave blank for a general annotation.
             </p>
             <textarea
               value={improveInstructions}
@@ -1016,14 +1016,14 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Improving...
+                    Annotating...
                   </>
                 ) : (
                   <>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                     </svg>
-                    Improve
+                    Annotate
                   </>
                 )}
               </button>
