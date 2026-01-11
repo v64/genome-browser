@@ -1,10 +1,44 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '../api/client';
 import { useFavorites } from '../hooks/useFavorites';
 import ReactMarkdown from 'react-markdown';
 import { MagnitudeBadge } from './MagnitudeBadge';
 import { ReputeBadge } from './ReputeBadge';
+
+// Parse text containing [cite:ID] citations and render as clickable links
+function CitedText({ text, onCiteClick }) {
+  if (!text) return null;
+
+  // Split text by citation pattern [cite:...]
+  const parts = text.split(/(\[cite:[^\]]+\])/g);
+
+  return (
+    <span>
+      {parts.map((part, idx) => {
+        const citeMatch = part.match(/\[cite:([^\]]+)\]/);
+        if (citeMatch) {
+          const citeId = citeMatch[1];
+          return (
+            <button
+              key={idx}
+              onClick={() => onCiteClick?.(citeId)}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 bg-purple-900/40 hover:bg-purple-800/60 text-purple-300 hover:text-purple-200 rounded text-xs font-medium transition-colors cursor-pointer"
+              title={`View source: ${citeId}`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+              </svg>
+              <span>{citeId.replace(/_/g, ' ').replace(/^(knowledge|datalog|chat)/, '$1 ')}</span>
+            </button>
+          );
+        }
+        // For non-citation parts, render with ReactMarkdown
+        return <ReactMarkdown key={idx} components={{ p: 'span' }}>{part}</ReactMarkdown>;
+      })}
+    </span>
+  );
+}
 
 // Modal component for viewing full content
 function ContentModal({ isOpen, onClose, title, children }) {
@@ -326,6 +360,12 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
   const [selectedKnowledge, setSelectedKnowledge] = useState(null);
   const [selectedDataLog, setSelectedDataLog] = useState(null);
 
+  // Editing states
+  const [editingSummary, setEditingSummary] = useState(false);
+  const [editedSummary, setEditedSummary] = useState('');
+  const [editingGenotype, setEditingGenotype] = useState(null); // which genotype is being edited
+  const [editedGenotypeInfo, setEditedGenotypeInfo] = useState({});
+
   // Close on Escape key (only if no modals are open)
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -336,6 +376,58 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose, selectedConvo, selectedKnowledge, selectedDataLog]);
+
+  // Handle citation clicks - find and open the referenced source
+  const handleCiteClick = useCallback((citeId, data, conversations) => {
+    if (!citeId || !data) return;
+
+    // Handle chat_history citation
+    if (citeId === 'chat_history' && conversations?.length > 0) {
+      // Open the first conversation
+      setSelectedConvo(conversations[0]);
+      return;
+    }
+
+    // Handle knowledge_X citations
+    if (citeId.startsWith('knowledge_')) {
+      const dbId = parseInt(citeId.replace('knowledge_', ''), 10);
+      const entry = data.knowledge_entries?.find(e => e.id === dbId);
+      if (entry) {
+        setSelectedKnowledge(entry);
+        return;
+      }
+      // If not found by ID, try index
+      const idx = dbId;
+      if (data.knowledge_entries?.[idx]) {
+        setSelectedKnowledge(data.knowledge_entries[idx]);
+        return;
+      }
+    }
+
+    // Handle datalog_X citations
+    if (citeId.startsWith('datalog_')) {
+      const dbId = parseInt(citeId.replace('datalog_', ''), 10);
+      const entry = data.data_log_entries?.find(e => e.id === dbId);
+      if (entry) {
+        setSelectedDataLog(entry);
+        return;
+      }
+      // If not found by ID, try index
+      const idx = dbId;
+      if (data.data_log_entries?.[idx]) {
+        setSelectedDataLog(data.data_log_entries[idx]);
+        return;
+      }
+    }
+
+    // If citation not found, scroll to the relevant section
+    const sectionId = citeId.startsWith('knowledge') ? 'knowledge-section' :
+                     citeId.startsWith('chat') ? 'conversations-section' :
+                     citeId.startsWith('datalog') ? 'datalog-section' : null;
+    if (sectionId) {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['snp-full', rsid],
@@ -365,9 +457,50 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
     },
   });
 
+  const editMutation = useMutation({
+    mutationFn: ({ rsid, data }) => api.editAnnotation(rsid, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['snp-full', rsid] });
+      queryClient.invalidateQueries({ queryKey: ['snp', rsid] });
+      setEditingSummary(false);
+      setEditingGenotype(null);
+    },
+    onError: (err) => {
+      console.error('Edit error:', err);
+    },
+  });
+
   const handleImprove = () => {
     setImproving(true);
     improveMutation.mutate(rsid);
+  };
+
+  const handleStartEditSummary = () => {
+    setEditedSummary(data?.annotation?.summary || '');
+    setEditingSummary(true);
+  };
+
+  const handleSaveSummary = () => {
+    editMutation.mutate({ rsid, data: { summary: editedSummary } });
+  };
+
+  const handleCancelEditSummary = () => {
+    setEditingSummary(false);
+    setEditedSummary('');
+  };
+
+  const handleStartEditGenotype = (gt, currentInfo) => {
+    setEditedGenotypeInfo({ ...data?.annotation?.genotype_info, [gt]: currentInfo });
+    setEditingGenotype(gt);
+  };
+
+  const handleSaveGenotype = (gt) => {
+    editMutation.mutate({ rsid, data: { genotype_info: editedGenotypeInfo } });
+  };
+
+  const handleCancelEditGenotype = () => {
+    setEditingGenotype(null);
+    setEditedGenotypeInfo({});
   };
 
   if (!rsid) {
@@ -561,17 +694,63 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
             </div>
 
             {/* Summary */}
-            {data.annotation?.summary && typeof data.annotation.summary === 'string' && (
+            {(data.annotation?.summary || editingSummary || data.annotation) && (
               <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
-                <h2 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
-                  Summary
-                  <span className={`px-2 py-0.5 rounded text-xs ${getSourceColor(data.annotation?.source || 'snpedia')}`}>
-                    {data.annotation?.source || 'snpedia'}
-                  </span>
-                </h2>
-                <div className="text-sm text-gray-300 prose prose-sm prose-invert max-w-none">
-                  <ReactMarkdown>{String(data.annotation.summary)}</ReactMarkdown>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                    Summary
+                    <span className={`px-2 py-0.5 rounded text-xs ${getSourceColor(data.annotation?.source || 'snpedia')}`}>
+                      {data.annotation?.source || 'snpedia'}
+                    </span>
+                  </h2>
+                  {!editingSummary && (
+                    <button
+                      onClick={handleStartEditSummary}
+                      className="text-xs text-gray-400 hover:text-white flex items-center gap-1 px-2 py-1 hover:bg-gray-700 rounded transition-colors"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                      Edit
+                    </button>
+                  )}
                 </div>
+                {editingSummary ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editedSummary}
+                      onChange={(e) => setEditedSummary(e.target.value)}
+                      className="w-full h-32 p-3 bg-gray-700 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-y"
+                      placeholder="Enter summary..."
+                    />
+                    <div className="flex items-center gap-2 justify-end">
+                      <button
+                        onClick={handleCancelEditSummary}
+                        className="px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveSummary}
+                        disabled={editMutation.isPending}
+                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+                      >
+                        {editMutation.isPending ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                ) : data.annotation?.summary ? (
+                  <div className="text-sm text-gray-300 leading-relaxed">
+                    <CitedText
+                      text={String(data.annotation.summary)}
+                      onCiteClick={(citeId) => handleCiteClick(citeId, data, conversations)}
+                    />
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500 italic">
+                    No summary available. Click Edit to add one, or use "Improve with Claude" to generate one.
+                  </div>
+                )}
               </div>
             )}
 
@@ -591,17 +770,62 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
                     })
                     .map(([gt, info]) => {
                       const isYours = gt === data.genotype || gt === data.matched_genotype;
+                      const isEditing = editingGenotype === gt;
                       return (
                         <div key={gt} className={`p-3 rounded ${isYours ? 'bg-blue-900/30 border border-blue-700' : 'bg-gray-700/50'}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="font-mono font-bold text-white text-lg">{gt}</span>
-                            {isYours && (
-                              <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
-                                Your genotype
-                              </span>
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-bold text-white text-lg">{gt}</span>
+                              {isYours && (
+                                <span className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded-full">
+                                  Your genotype
+                                </span>
+                              )}
+                            </div>
+                            {!isEditing && (
+                              <button
+                                onClick={() => handleStartEditGenotype(gt, info)}
+                                className="text-xs text-gray-400 hover:text-white flex items-center gap-1 px-2 py-1 hover:bg-gray-600 rounded transition-colors"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                                Edit
+                              </button>
                             )}
                           </div>
-                          <p className="text-sm text-gray-300">{info}</p>
+                          {isEditing ? (
+                            <div className="space-y-2 mt-2">
+                              <textarea
+                                value={editedGenotypeInfo[gt] || ''}
+                                onChange={(e) => setEditedGenotypeInfo({ ...editedGenotypeInfo, [gt]: e.target.value })}
+                                className="w-full h-24 p-3 bg-gray-600 border border-gray-500 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-y"
+                                placeholder={`Enter interpretation for ${gt}...`}
+                              />
+                              <div className="flex items-center gap-2 justify-end">
+                                <button
+                                  onClick={handleCancelEditGenotype}
+                                  className="px-3 py-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  onClick={() => handleSaveGenotype(gt)}
+                                  disabled={editMutation.isPending}
+                                  className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:opacity-50"
+                                >
+                                  {editMutation.isPending ? 'Saving...' : 'Save'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-sm text-gray-300">
+                              <CitedText
+                                text={info}
+                                onCiteClick={(citeId) => handleCiteClick(citeId, data, conversations)}
+                              />
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -611,7 +835,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
 
             {/* Claude Conversations - clickable items */}
             {conversations.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+              <div id="conversations-section" className="bg-gray-800 rounded-lg p-4 border border-gray-700">
                 <h2 className="text-sm font-semibold text-white mb-3">
                   Claude Conversations ({conversations.length})
                 </h2>
@@ -640,7 +864,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
 
             {/* Knowledge Entries - clickable items */}
             {data.knowledge_entries?.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+              <div id="knowledge-section" className="bg-gray-800 rounded-lg p-4 border border-gray-700">
                 <h2 className="text-sm font-semibold text-white mb-3">
                   Knowledge Base ({data.knowledge_entries.length})
                 </h2>
@@ -670,7 +894,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick }) {
 
             {/* Data Log - clickable items */}
             {data.data_log_entries?.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+              <div id="datalog-section" className="bg-gray-800 rounded-lg p-4 border border-gray-700">
                 <h2 className="text-sm font-semibold text-white mb-3">
                   Data Log ({data.data_log_entries.length})
                 </h2>

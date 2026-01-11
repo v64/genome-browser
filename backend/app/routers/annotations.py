@@ -16,10 +16,19 @@ class EditRequest(BaseModel):
     genotype_info: Optional[dict] = None
 
 
+class CitationSource(BaseModel):
+    id: str
+    type: str  # 'knowledge', 'conversation', 'datalog'
+    db_id: Optional[int] = None
+    data_type: Optional[str] = None
+    preview: Optional[str] = None
+
+
 class ImproveResponse(BaseModel):
     rsid: str
     improved_summary: Optional[str]
     improved_genotype_info: dict
+    citations: Optional[list[CitationSource]] = None
     applied: bool = False
     usage: Optional[dict] = None
 
@@ -85,10 +94,25 @@ async def improve_annotation(rsid: str, request: ImproveRequest = None):
                 source="claude_improvement"
             )
 
+            # Save to chat history so it appears in Claude conversations
+            user_query = f"Generate a comprehensive summary for {rsid} (my genotype: {snp['genotype']})"
+            await database.save_chat_message("user", user_query, [rsid])
+
+            # Build assistant response with genotype info
+            assistant_response = result.get("improved_summary", "")
+            if result.get("improved_genotype_info"):
+                assistant_response += "\n\n**Genotype Interpretations:**\n"
+                for gt, info in result.get("improved_genotype_info", {}).items():
+                    is_yours = " (your genotype)" if gt == snp["genotype"] else ""
+                    assistant_response += f"- **{gt}**{is_yours}: {info}\n"
+
+            await database.save_chat_message("assistant", assistant_response, [rsid])
+
         return ImproveResponse(
             rsid=rsid,
             improved_summary=result.get("improved_summary"),
             improved_genotype_info=result.get("improved_genotype_info", {}),
+            citations=result.get("citations"),
             applied=applied,
             usage=result.get("usage")
         )
@@ -143,6 +167,20 @@ async def edit_annotation(rsid: str, edit: EditRequest):
                 snps_mentioned=[rsid],
                 source="user_edit"
             )
+
+        # Save to chat history so user edits appear in conversations
+        if edit.summary:
+            user_msg = f"Update the summary for {rsid}"
+            await database.save_chat_message("user", user_msg, [rsid])
+            await database.save_chat_message("assistant", f"Summary updated:\n\n{edit.summary}", [rsid])
+        elif edit.genotype_info:
+            edited_gts = list(edit.genotype_info.keys())
+            user_msg = f"Update genotype information for {rsid}: {', '.join(edited_gts)}"
+            await database.save_chat_message("user", user_msg, [rsid])
+            response = "Genotype information updated:\n\n"
+            for gt, info in edit.genotype_info.items():
+                response += f"- **{gt}**: {info}\n"
+            await database.save_chat_message("assistant", response, [rsid])
 
         # Return updated annotation
         updated = await database.get_annotation(rsid)

@@ -201,7 +201,7 @@ Be specific and cite the rsID. If the local database information seems outdated 
 
 
 async def improve_annotation(rsid: str, genotype: str) -> dict:
-    """Ask Claude to rewrite/improve an annotation in clear, accessible language."""
+    """Ask Claude to create a comprehensive summary with all available context and citations."""
     snp_data = await database.get_snp_full_context(rsid)
 
     if not snp_data:
@@ -209,32 +209,110 @@ async def improve_annotation(rsid: str, genotype: str) -> dict:
 
     current_context = format_snp_context(snp_data)
 
+    # Gather ALL context about this SNP
+    knowledge_entries = await database.get_knowledge_for_snp(rsid)
+    chat_messages = await database.get_chat_messages_for_snp(rsid)
+    data_log_entries = await database.get_data_log(reference_id=rsid, limit=100)
+
+    # Build context sections with citation IDs
+    context_parts = []
+    citation_sources = []
+
+    # Add knowledge entries
+    for i, entry in enumerate(knowledge_entries or []):
+        cite_id = f"knowledge_{entry.get('id', i)}"
+        citation_sources.append({
+            "id": cite_id,
+            "type": "knowledge",
+            "db_id": entry.get('id'),
+            "preview": entry.get('query', '')[:50]
+        })
+        context_parts.append(f"""
+[SOURCE: {cite_id}]
+Query: {entry.get('query', 'N/A')}
+Response: {entry.get('response', 'N/A')[:2000]}
+""")
+
+    # Add chat messages - group into conversations
+    if chat_messages:
+        convo_text = []
+        for msg in chat_messages:
+            convo_text.append(f"{msg['role'].upper()}: {msg['content']}")
+
+        if convo_text:
+            cite_id = "chat_history"
+            citation_sources.append({
+                "id": cite_id,
+                "type": "conversation",
+                "preview": "Previous chat discussions"
+            })
+            context_parts.append(f"""
+[SOURCE: {cite_id}]
+Previous conversations mentioning {rsid}:
+{chr(10).join(convo_text[:20])}
+""")
+
+    # Add relevant data log entries (interpretations, not raw data)
+    interpretation_entries = [e for e in (data_log_entries or [])
+                             if e.get('data_type') in ('interpretation', 'gene_interpretation', 'conversation', 'search_query')]
+    for i, entry in enumerate(interpretation_entries[:10]):
+        cite_id = f"datalog_{entry.get('id', i)}"
+        citation_sources.append({
+            "id": cite_id,
+            "type": "datalog",
+            "db_id": entry.get('id'),
+            "data_type": entry.get('data_type'),
+            "preview": entry.get('content', '')[:50]
+        })
+        content = entry.get('content', '')
+        # Try to extract meaningful content from JSON
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, dict):
+                content = parsed.get('response') or parsed.get('content') or content
+        except:
+            pass
+        context_parts.append(f"""
+[SOURCE: {cite_id}]
+Type: {entry.get('data_type')}
+Content: {str(content)[:1500]}
+""")
+
     anthropic = get_client()
 
-    message = f"""I have this SNP annotation from SNPedia that needs to be rewritten in clearer, more accessible language.
+    # Build the comprehensive prompt
+    all_context = "\n---\n".join(context_parts) if context_parts else "No additional context available."
 
-Current annotation data:
+    message = f"""I have this SNP ({rsid}) and I want you to create a COMPREHENSIVE summary that synthesizes ALL the information we have about it.
+
+**Current SNPedia annotation:**
 {current_context}
 
-Please provide:
-1. A clear, concise summary (2-3 sentences) explaining what this SNP does and why it matters
-2. For each genotype variant, a clear explanation of what it means in plain English
+**Additional context from our knowledge base and previous conversations:**
+{all_context}
+
+Your task:
+1. Create a thorough summary that covers EVERYTHING we know about this SNP - from the base annotation AND from all the additional context (conversations about traits, conditions, behaviors, etc.)
+2. Include CITATIONS in your summary using [cite:SOURCE_ID] format wherever you reference information from a specific source
+3. For each genotype variant, provide comprehensive explanations that incorporate all relevant context
+
+IMPORTANT: Your summary should be comprehensive - if there's information in the context about how this SNP relates to specific traits (like mathematical ability, caffeine sensitivity, stress response, etc.), include that with citations!
 
 Return your response as JSON with this exact format:
 {{
-    "summary": "Your improved summary here",
+    "summary": "Your comprehensive summary here with [cite:knowledge_123] inline citations",
     "genotype_info": {{
-        "AA": "What having AA means",
-        "AG": "What having AG means",
-        "GG": "What having GG means"
+        "AA": "Comprehensive explanation with [cite:chat_history] citations",
+        "AG": "Explanation with citations",
+        "GG": "Explanation with citations"
     }}
 }}
 
-Only include genotypes that are actually relevant for this SNP. Make the language accessible to someone without a genetics background. Focus on practical implications."""
+Only include genotypes that are actually relevant for this SNP. Make the language accessible but thorough. The goal is for this summary to be the definitive reference for everything we know about this SNP."""
 
     response = anthropic.messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=1024,
+        max_tokens=2048,
         messages=[{"role": "user", "content": message}]
     )
 
@@ -250,6 +328,7 @@ Only include genotypes that are actually relevant for this SNP. Make the languag
                 "rsid": rsid,
                 "improved_summary": improved.get("summary"),
                 "improved_genotype_info": improved.get("genotype_info", {}),
+                "citations": citation_sources,
                 "usage": {
                     "input_tokens": response.usage.input_tokens,
                     "output_tokens": response.usage.output_tokens
