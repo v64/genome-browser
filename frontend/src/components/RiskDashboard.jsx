@@ -30,6 +30,8 @@ export function RiskDashboard({ onSnpClick }) {
 
   const activityStats = dashboard?.activity_stats || {}
   const interestingSnps = dashboard?.interesting_snps || []
+  const needsAttention = dashboard?.needs_attention || []
+  const rareSnps = dashboard?.rare_snps || []
 
   // Separate into categories based on why they're interesting
   const recentlyActive = interestingSnps.filter(s => s.last_active)
@@ -77,6 +79,73 @@ export function RiskDashboard({ onSnpClick }) {
         <span className="text-gray-300 dark:text-gray-600">•</span>
         <span>{activityStats.recent_activity_count || 0} actions this week</span>
       </div>
+
+      {/* Needs Attention Section */}
+      {needsAttention.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Needs Attention
+            </h2>
+            <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full text-xs font-medium">
+              {needsAttention.length} items
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            These variants may warrant your review — high-impact genes not yet enriched, or risk variants you haven't tracked.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {needsAttention.map((snp) => (
+              <button
+                key={snp.rsid}
+                onClick={() => onSnpClick?.(snp)}
+                className="card p-3 text-left hover:shadow-lg hover:border-orange-300 dark:hover:border-orange-600 transition-all group relative"
+              >
+                {/* Attention Badge */}
+                <div className="absolute -top-2 -right-2 px-2 py-0.5 bg-orange-500 text-white rounded-full text-xs font-medium shadow-sm">
+                  {snp.attention_reason?.includes('Risk') ? '⚠️' : snp.attention_reason?.includes('magnitude') ? '📊' : '📝'}
+                </div>
+
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="font-mono font-semibold text-orange-600 dark:text-orange-400">
+                    {snp.rsid}
+                  </span>
+                  {snp.gene && (
+                    <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs">
+                      {snp.gene}
+                    </span>
+                  )}
+                  <span className="ml-auto font-mono text-sm text-gray-500">
+                    {snp.genotype}
+                  </span>
+                </div>
+
+                {snp.title && (
+                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 line-clamp-1">
+                    {snp.title}
+                  </p>
+                )}
+
+                {snp.summary && (
+                  <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
+                    {snp.summary}
+                  </p>
+                )}
+
+                <p className="text-xs text-orange-600 dark:text-orange-400 mb-2">
+                  {snp.attention_reason}
+                </p>
+
+                <div className="flex items-center gap-2">
+                  <MagnitudeBadge magnitude={snp.magnitude} />
+                  <ReputeBadge repute={snp.repute} />
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Most Interesting Genes */}
       {interestingSnps.length > 0 && (
@@ -203,6 +272,102 @@ export function RiskDashboard({ onSnpClick }) {
                   <svg className="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rare/Unusual Variants Section */}
+      {rareSnps.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Rare & Unusual Variants
+            </h2>
+            <span className="px-2 py-0.5 bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-600 dark:text-fuchsia-400 rounded-full text-xs font-medium">
+              High magnitude
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            These variants have unusually high magnitude scores (≥3), indicating uncommon or particularly noteworthy genetic findings.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {rareSnps.map((snp) => (
+              <button
+                key={snp.rsid}
+                onClick={() => onSnpClick?.(snp)}
+                className="card p-4 text-left hover:shadow-lg hover:border-fuchsia-300 dark:hover:border-fuchsia-600 transition-all group relative overflow-hidden"
+              >
+                {/* Rarity gradient background */}
+                <div className={`absolute inset-0 opacity-5 ${
+                  snp.magnitude >= 4 ? 'bg-gradient-to-br from-fuchsia-500 to-purple-600' :
+                  snp.magnitude >= 3.5 ? 'bg-gradient-to-br from-fuchsia-400 to-pink-500' :
+                  'bg-gradient-to-br from-fuchsia-300 to-purple-400'
+                }`} />
+
+                {/* Rarity Label */}
+                <div className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-xs font-medium ${
+                  snp.magnitude >= 4 ? 'bg-fuchsia-600 text-white' :
+                  snp.magnitude >= 3.5 ? 'bg-fuchsia-500 text-white' :
+                  'bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-700 dark:text-fuchsia-300'
+                }`}>
+                  {snp.rarity_level}
+                </div>
+
+                <div className="relative">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="font-mono font-semibold text-fuchsia-600 dark:text-fuchsia-400 text-lg">
+                      {snp.rsid}
+                    </span>
+                    {snp.gene && (
+                      <span className="px-1.5 py-0.5 bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-300 rounded text-xs font-medium">
+                        {snp.gene}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
+                      {snp.genotype}
+                    </span>
+                    <span
+                      className={snp.is_favorite ? "text-amber-500" : "text-gray-400 dark:text-gray-600"}
+                      title={snp.is_favorite ? "Favorite" : "Not favorited"}
+                    >
+                      {snp.is_favorite ? "★" : "☆"}
+                    </span>
+                    {snp.is_improved && (
+                      <span className="px-1.5 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded text-xs">
+                        ✓ enriched
+                      </span>
+                    )}
+                  </div>
+
+                  {snp.title && (
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 line-clamp-1">
+                      {snp.title}
+                    </p>
+                  )}
+
+                  {snp.summary && (
+                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
+                      {snp.summary}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <MagnitudeBadge magnitude={snp.magnitude} />
+                    <ReputeBadge repute={snp.repute} />
+                    {snp.label && <LabelBadge label={snp.label} size="sm" />}
+                    {snp.categories?.slice(0, 2).map((cat) => (
+                      <span key={cat} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </button>
             ))}

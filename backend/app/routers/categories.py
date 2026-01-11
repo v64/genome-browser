@@ -46,6 +46,12 @@ async def get_dashboard():
     # Also get traditional notable variants (high magnitude) for comparison
     notable = await database.get_notable_variants(limit=10)
 
+    # Get SNPs that need attention
+    needs_attention = await database.get_needs_attention_snps(limit=12)
+
+    # Get rare/unusual SNPs
+    rare_snps = await database.get_rare_unusual_snps(limit=10)
+
     total_snps = await database.get_snp_count()
     annotated_snps = await database.get_annotation_count()
 
@@ -61,6 +67,8 @@ async def get_dashboard():
     return {
         "interesting_snps": interesting_snps,
         "notable_variants": notable,
+        "needs_attention": needs_attention,
+        "rare_snps": rare_snps,
         "category_counts": category_counts,
         "total_snps": total_snps,
         "annotated_snps": annotated_snps,

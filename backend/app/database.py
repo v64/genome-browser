@@ -1292,6 +1292,103 @@ async def get_most_interesting_snps(limit: int = 20) -> list[dict]:
             return results
 
 
+async def get_needs_attention_snps(limit: int = 10) -> list[dict]:
+    """
+    Get SNPs that need user attention based on these criteria:
+    - High magnitude (>= 2.5) but not yet improved by Claude
+    - Bad repute but not favorited or labeled (user should track these)
+    - Has annotation but missing title (needs enrichment)
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype,
+                   a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   a.title, a.source as annotation_source, a.improved_at,
+                   CASE WHEN f.rsid IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+                   gl.label,
+                   CASE
+                       WHEN a.magnitude >= 2.5 AND a.improved_at IS NULL AND a.source != 'claude'
+                       THEN 'High magnitude - not enriched'
+                       WHEN a.repute = 'Bad' AND f.rsid IS NULL AND gl.rsid IS NULL
+                       THEN 'Risk variant - not tracked'
+                       WHEN a.summary IS NOT NULL AND (a.title IS NULL OR a.title = '')
+                       THEN 'Missing title'
+                       ELSE 'Review recommended'
+                   END as attention_reason
+            FROM snps s
+            JOIN annotations a ON s.rsid = a.rsid
+            LEFT JOIN favorites f ON s.rsid = f.rsid
+            LEFT JOIN genotype_labels gl ON s.rsid = gl.rsid
+            WHERE
+                -- High magnitude but not improved
+                (a.magnitude >= 2.5 AND a.improved_at IS NULL AND a.source != 'claude')
+                OR
+                -- Bad repute but not favorited or labeled
+                (a.repute = 'Bad' AND f.rsid IS NULL AND gl.rsid IS NULL)
+                OR
+                -- Has annotation but no title (needs enrichment)
+                (a.summary IS NOT NULL AND (a.title IS NULL OR a.title = '') AND a.magnitude >= 2)
+            ORDER BY
+                CASE WHEN a.repute = 'Bad' THEN 0 ELSE 1 END,
+                a.magnitude DESC
+            LIMIT ?
+        """
+
+        async with db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["is_favorite"] = bool(r["is_favorite"])
+                r["is_improved"] = bool(r.get("improved_at") or r.get("annotation_source") in ("claude", "user"))
+                results.append(r)
+            return results
+
+
+async def get_rare_unusual_snps(limit: int = 10) -> list[dict]:
+    """
+    Get rare/unusual SNPs based on:
+    - Very high magnitude (>= 3) - these are uncommon findings
+    - Magnitude >= 4 is especially rare and noteworthy
+    """
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        query = """
+            SELECT s.rsid, s.chromosome, s.position, s.genotype,
+                   a.summary, a.magnitude, a.repute, a.gene, a.categories,
+                   a.title, a.source as annotation_source, a.improved_at,
+                   CASE WHEN f.rsid IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+                   gl.label,
+                   CASE
+                       WHEN a.magnitude >= 4 THEN 'Very rare finding'
+                       WHEN a.magnitude >= 3.5 THEN 'Highly unusual'
+                       ELSE 'Uncommon variant'
+                   END as rarity_level
+            FROM snps s
+            JOIN annotations a ON s.rsid = a.rsid
+            LEFT JOIN favorites f ON s.rsid = f.rsid
+            LEFT JOIN genotype_labels gl ON s.rsid = gl.rsid
+            WHERE a.magnitude >= 3
+            ORDER BY a.magnitude DESC, a.repute DESC
+            LIMIT ?
+        """
+
+        async with db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                r["is_favorite"] = bool(r["is_favorite"])
+                r["is_improved"] = bool(r.get("improved_at") or r.get("annotation_source") in ("claude", "user"))
+                results.append(r)
+            return results
+
+
 async def get_query_history(limit: int = 50, offset: int = 0) -> list[dict]:
     """Get query history from the Query page, ordered by most recent."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
