@@ -47,6 +47,21 @@ async def get_categories():
     return {"categories": category_counts}
 
 
+@router.get("/history")
+async def get_query_history(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
+):
+    """Get query history from the Query page, ordered by most recent."""
+    entries = await database.get_query_history(limit=limit, offset=offset)
+    total = await database.get_query_history_count()
+    return {
+        "entries": entries,
+        "total": total,
+        "has_more": offset + len(entries) < total
+    }
+
+
 @router.get("/similar")
 async def find_similar(
     query: str = Query(..., description="Query to find similar knowledge for"),

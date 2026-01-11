@@ -18,6 +18,7 @@ import { ExportButton } from './components/ExportButton'
 import { ChatPanel } from './components/ChatPanel'
 import DataLogViewer from './components/DataLogViewer'
 import GenomeQuery from './components/GenomeQuery'
+import QueryHistory from './components/QueryHistory'
 import { SnpFullPage } from './components/SnpFullPage'
 import { LabelFilterPanel } from './components/LabelFilterPanel'
 import { TagFilter } from './components/TagFilter'
@@ -25,6 +26,7 @@ import { TagFilter } from './components/TagFilter'
 const TABS = {
   DASHBOARD: 'dashboard',
   QUERY: 'query',
+  HISTORY: 'history',
   BROWSE: 'browse',
   DATA: 'data',
   FAVORITES: 'favorites',
@@ -35,6 +37,7 @@ const pathToTab = {
   '/': TABS.DASHBOARD,
   '/dashboard': TABS.DASHBOARD,
   '/query': TABS.QUERY,
+  '/history': TABS.HISTORY,
   '/browse': TABS.BROWSE,
   '/data': TABS.DATA,
   '/favorites': TABS.FAVORITES,
@@ -296,9 +299,10 @@ function AppLayout() {
       if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
         if (e.key === '1') setActiveTab(TABS.DASHBOARD)
         if (e.key === '2') setActiveTab(TABS.QUERY)
-        if (e.key === '3') setActiveTab(TABS.BROWSE)
-        if (e.key === '4') setActiveTab(TABS.DATA)
-        if (e.key === '5') setActiveTab(TABS.FAVORITES)
+        if (e.key === '3') setActiveTab(TABS.HISTORY)
+        if (e.key === '4') setActiveTab(TABS.BROWSE)
+        if (e.key === '5') setActiveTab(TABS.DATA)
+        if (e.key === '6') setActiveTab(TABS.FAVORITES)
       }
     }
 
@@ -367,6 +371,20 @@ function AppLayout() {
             <span className="text-xs text-gray-400">[2]</span>
           </button>
           <button
+            onClick={() => setActiveTab(TABS.HISTORY)}
+            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
+              activeTab === TABS.HISTORY
+                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
+                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            History
+            <span className="text-xs text-gray-400">[3]</span>
+          </button>
+          <button
             onClick={() => setActiveTab(TABS.BROWSE)}
             className={`px-4 py-2 rounded-md font-medium transition-colors ${
               activeTab === TABS.BROWSE
@@ -375,7 +393,7 @@ function AppLayout() {
             }`}
           >
             Browse
-            <span className="ml-1 text-xs text-gray-400">[3]</span>
+            <span className="ml-1 text-xs text-gray-400">[4]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.DATA)}
@@ -386,7 +404,7 @@ function AppLayout() {
             }`}
           >
             Data Log
-            <span className="ml-1 text-xs text-gray-400">[4]</span>
+            <span className="ml-1 text-xs text-gray-400">[5]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.FAVORITES)}
@@ -397,7 +415,7 @@ function AppLayout() {
             }`}
           >
             Favorites
-            <span className="ml-1 text-xs text-gray-400">[5]</span>
+            <span className="ml-1 text-xs text-gray-400">[6]</span>
           </button>
         </div>
 
@@ -445,6 +463,16 @@ function AppLayout() {
                   setError={setGenomeQueryError}
                 />
               </div>
+            )}
+
+            {activeTab === TABS.HISTORY && (
+              <QueryHistory
+                onSnpClick={handleSnpClick}
+                onRerunQuery={(query) => {
+                  setGenomeQueryText(query);
+                  setActiveTab(TABS.QUERY);
+                }}
+              />
             )}
 
             {activeTab === TABS.BROWSE && (

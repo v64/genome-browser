@@ -1292,6 +1292,40 @@ async def get_most_interesting_snps(limit: int = 20) -> list[dict]:
             return results
 
 
+async def get_query_history(limit: int = 50, offset: int = 0) -> list[dict]:
+    """Get query history from the Query page, ordered by most recent."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Get queries that are from the query page (claude_conversation source)
+        # or search summaries
+        query = """
+            SELECT id, query, response, snps_mentioned, category, source, created_at
+            FROM knowledge
+            WHERE source IN ('claude_conversation', 'search_summary')
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
+
+        async with db.execute(query, (limit, offset)) as cursor:
+            rows = await cursor.fetchall()
+            results = []
+            for row in rows:
+                r = dict(row)
+                r["snps_mentioned"] = json.loads(r["snps_mentioned"]) if r["snps_mentioned"] else []
+                results.append(r)
+            return results
+
+
+async def get_query_history_count() -> int:
+    """Get total count of query history entries."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT COUNT(*) FROM knowledge WHERE source IN ('claude_conversation', 'search_summary')"
+        ) as cursor:
+            return (await cursor.fetchone())[0]
+
+
 async def get_activity_stats() -> dict:
     """Get activity statistics for the dashboard."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
