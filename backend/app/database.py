@@ -1136,11 +1136,13 @@ async def search_snps_by_label(
 
         # Get results with SNP and annotation data
         query = """
-            SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories,
-                   gl.label, gl.confidence, gl.population_frequency, gl.notes as label_notes
+            SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories, a.title,
+                   gl.label, gl.confidence, gl.population_frequency, gl.notes as label_notes,
+                   CASE WHEN f.rsid IS NOT NULL THEN 1 ELSE 0 END as is_favorite
             FROM genotype_labels gl
             JOIN snps s ON gl.rsid = s.rsid
             LEFT JOIN annotations a ON gl.rsid = a.rsid
+            LEFT JOIN favorites f ON gl.rsid = f.rsid
             WHERE gl.label = ?
             ORDER BY a.magnitude DESC NULLS LAST
             LIMIT ? OFFSET ?
@@ -1151,6 +1153,7 @@ async def search_snps_by_label(
             for row in rows:
                 r = dict(row)
                 r["categories"] = json.loads(r["categories"]) if r.get("categories") else []
+                r["is_favorite"] = bool(r.get("is_favorite", 0))
                 results.append(r)
             return results, total
 
