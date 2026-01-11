@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from './api/client'
@@ -59,14 +59,95 @@ function AppLayout() {
   // Get selected SNP from query param
   const selectedSnp = searchParams.get('snp')
 
-  // Initialize search from URL query param if present
+  // Initialize search from URL query param if present, or restore from sessionStorage
   const urlTag = searchParams.get('tag')
-  const [search, setSearch] = useState(() => urlTag ? `tag:${urlTag}` : '')
-  const [selectedCategories, setSelectedCategories] = useState([])
-  const [selectedChromosome, setSelectedChromosome] = useState(null)
-  const [selectedLabel, setSelectedLabel] = useState(null)
-  const [offset, setOffset] = useState(0)
-  const [allResults, setAllResults] = useState([])
+  const [search, setSearch] = useState(() => {
+    if (urlTag) return `tag:${urlTag}`
+    return sessionStorage.getItem('browseSearch') || ''
+  })
+  const [selectedCategories, setSelectedCategories] = useState(() => {
+    const saved = sessionStorage.getItem('browseCategories')
+    try {
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
+  const [selectedChromosome, setSelectedChromosome] = useState(() => {
+    return sessionStorage.getItem('browseChromosome') || null
+  })
+  const [selectedLabel, setSelectedLabel] = useState(() => {
+    return sessionStorage.getItem('browseLabel') || null
+  })
+  const [offset, setOffset] = useState(() => {
+    // If URL has a tag param, start fresh
+    if (urlTag) return 0
+    const saved = sessionStorage.getItem('browseOffset')
+    return saved ? parseInt(saved, 10) : 0
+  })
+  const [allResults, setAllResults] = useState(() => {
+    // If URL has a tag param, start fresh - don't restore old results
+    if (urlTag) return []
+    const saved = sessionStorage.getItem('browseResults')
+    if (saved) {
+      try {
+        return JSON.parse(saved)
+      } catch {
+        return []
+      }
+    }
+    return []
+  })
+  const [savedHasMore, setSavedHasMore] = useState(() => {
+    const saved = sessionStorage.getItem('browseHasMore')
+    return saved === 'true'
+  })
+  const [savedTotal, setSavedTotal] = useState(() => {
+    const saved = sessionStorage.getItem('browseTotal')
+    return saved ? parseInt(saved, 10) : 0
+  })
+
+  // Track if we restored browse state from sessionStorage (to prevent clearing/refetching on mount)
+  // BUT if there's a tag param in URL, don't skip - we want to do a new search
+  const [skipInitialFetch, setSkipInitialFetch] = useState(() => {
+    // If URL has a tag param, always do a fresh search
+    if (urlTag) {
+      return false
+    }
+    const saved = sessionStorage.getItem('browseResults')
+    try {
+      return saved ? JSON.parse(saved).length > 0 : false
+    } catch {
+      return false
+    }
+  })
+
+  // Persist browse state to sessionStorage
+  // Only save results if we have actual data (to prevent clearing on unmount race conditions)
+  useEffect(() => {
+    sessionStorage.setItem('browseSearch', search)
+    sessionStorage.setItem('browseCategories', JSON.stringify(selectedCategories))
+    sessionStorage.setItem('browseOffset', offset.toString())
+    sessionStorage.setItem('browseHasMore', savedHasMore.toString())
+    sessionStorage.setItem('browseTotal', savedTotal.toString())
+
+    if (selectedChromosome) {
+      sessionStorage.setItem('browseChromosome', selectedChromosome)
+    } else {
+      sessionStorage.removeItem('browseChromosome')
+    }
+
+    if (selectedLabel) {
+      sessionStorage.setItem('browseLabel', selectedLabel)
+    } else {
+      sessionStorage.removeItem('browseLabel')
+    }
+
+    // Only save results if we have data - prevents clearing on unmount
+    if (allResults.length > 0) {
+      sessionStorage.setItem('browseResults', JSON.stringify(allResults))
+    }
+  }, [search, selectedCategories, selectedChromosome, selectedLabel, offset, allResults, savedHasMore, savedTotal])
 
   // Update search when tag query param changes (e.g., navigating from full page)
   useEffect(() => {
@@ -160,14 +241,14 @@ function AppLayout() {
   const { data: regularData, isLoading: regularLoading, isFetching: regularFetching } = useQuery({
     queryKey: ['snps', browseSearchParams],
     queryFn: () => api.searchSnps(browseSearchParams),
-    enabled: activeTab === TABS.BROWSE && !selectedLabel,
+    enabled: activeTab === TABS.BROWSE && !selectedLabel && !skipInitialFetch,
   })
 
   // Label-filtered search
   const { data: labelData, isLoading: labelLoading, isFetching: labelFetching } = useQuery({
     queryKey: ['snps-by-label', selectedLabel, offset],
     queryFn: () => api.searchByLabel(selectedLabel, 50, offset),
-    enabled: activeTab === TABS.BROWSE && !!selectedLabel,
+    enabled: activeTab === TABS.BROWSE && !!selectedLabel && !skipInitialFetch,
   })
 
   // Use the appropriate data based on whether label is selected
@@ -183,20 +264,48 @@ function AppLayout() {
       } else {
         setAllResults((prev) => [...prev, ...data.results])
       }
+      // Update hasMore and total state
+      setSavedHasMore(!!data.has_more)
+      setSavedTotal(data.total ?? 0)
     }
   }, [data, offset])
 
+  // Track the last search/filter values to detect actual changes vs initial mount
+  const lastFiltersRef = useRef({ search, selectedCategories, selectedChromosome, selectedLabel })
+
   // Reset offset and clear results when filters change
   useEffect(() => {
+    const prev = lastFiltersRef.current
+    const filtersChanged =
+      prev.search !== search ||
+      JSON.stringify(prev.selectedCategories) !== JSON.stringify(selectedCategories) ||
+      prev.selectedChromosome !== selectedChromosome ||
+      prev.selectedLabel !== selectedLabel
+
+    // Update ref for next comparison
+    lastFiltersRef.current = { search, selectedCategories, selectedChromosome, selectedLabel }
+
+    // Skip if filters haven't actually changed (initial mount or same values)
+    if (!filtersChanged) {
+      return
+    }
+
     setOffset(0)
     setAllResults([])
+    setSavedHasMore(false)
+    setSavedTotal(0)
+    setSkipInitialFetch(false) // Allow queries to run when filters change
+    // Clear stored results since filters changed
+    sessionStorage.removeItem('browseResults')
   }, [search, selectedCategories, selectedChromosome, selectedLabel])
 
   const handleLoadMore = useCallback(() => {
-    if (data?.has_more && !isFetching) {
+    const hasMore = data?.has_more ?? savedHasMore
+    if (hasMore && !isFetching) {
+      setSkipInitialFetch(false) // Allow fetch when loading more
       setOffset((prev) => prev + 50)
     }
-  }, [data?.has_more, isFetching])
+  }, [data?.has_more, savedHasMore, isFetching])
 
   // When selecting a label, clear other filters since they use different queries
   const handleLabelChange = useCallback((label) => {
@@ -484,9 +593,9 @@ function AppLayout() {
                     placeholder="Filter by rsid, gene, or keyword..."
                   />
                 </div>
-                {data && (
+                {(data || allResults.length > 0) && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    {data.total.toLocaleString()} results
+                    {((data?.total ?? savedTotal) || allResults.length).toLocaleString()} results
                     {selectedLabel && ` labeled "${selectedLabel}"`}
                     {parsedSearch.tagFromSearch && ` tagged "${parsedSearch.tagFromSearch}"`}
                     {parsedSearch.searchText && ` for "${parsedSearch.searchText}"`}
@@ -495,8 +604,8 @@ function AppLayout() {
                 )}
                 <SnpList
                   snps={allResults}
-                  isLoading={isLoading || isFetching}
-                  hasMore={data?.has_more || false}
+                  isLoading={isLoading && !skipInitialFetch}
+                  hasMore={data?.has_more ?? savedHasMore}
                   onLoadMore={handleLoadMore}
                   onSnpClick={handleSnpClick}
                   onToggleFavorite={toggleFavorite}
