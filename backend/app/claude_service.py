@@ -323,7 +323,11 @@ Content: {str(content)[:1500]}
     # Determine example genotypes based on alleles in use
     if alleles_to_use:
         allele_list = sorted(existing_alleles)
-        example_genotypes = f'"{allele_list[0]}{allele_list[0]}", "{allele_list[0]}{allele_list[1]}", "{allele_list[1]}{allele_list[1]}"'
+        if len(allele_list) >= 2:
+            example_genotypes = f'"{allele_list[0]}{allele_list[0]}", "{allele_list[0]}{allele_list[1]}", "{allele_list[1]}{allele_list[1]}"'
+        else:
+            # Only one allele known, just show homozygous
+            example_genotypes = f'"{allele_list[0]}{allele_list[0]}"'
     else:
         example_genotypes = '"AA", "AG", "GG"'
 
