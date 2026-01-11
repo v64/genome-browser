@@ -3,6 +3,13 @@ import ReactMarkdown from 'react-markdown';
 import { LabelBadge } from './LabelBadge';
 import { api } from '../api/client';
 
+const DEFAULT_SUGGESTIONS = [
+  "What are my most significant genetic variants?",
+  "Do I have any risk variants for common diseases?",
+  "What genes affect my metabolism?",
+  "Tell me about my ancestry-related SNPs"
+];
+
 export default function GenomeQuery({
   onSnpClick,
   query,
@@ -17,7 +24,36 @@ export default function GenomeQuery({
   const [labels, setLabels] = useState({});
   const [improvedSnps, setImprovedSnps] = useState({});
   const [pendingCount, setPendingCount] = useState(0);
+  const [suggestions, setSuggestions] = useState(DEFAULT_SUGGESTIONS);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const suggestionsLoadedRef = useRef(false);
   const pollIntervalRef = useRef(null);
+
+  // Fetch personalized suggestions on mount (only once)
+  useEffect(() => {
+    if (suggestionsLoadedRef.current) return;
+    suggestionsLoadedRef.current = true;
+
+    const fetchSuggestions = async () => {
+      setSuggestionsLoading(true);
+      try {
+        const response = await fetch('http://localhost:8000/api/agent/suggestions');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.suggestions && data.suggestions.length > 0) {
+            setSuggestions(data.suggestions);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch suggestions:', err);
+        // Keep default suggestions on error
+      } finally {
+        setSuggestionsLoading(false);
+      }
+    };
+
+    fetchSuggestions();
+  }, []);
 
   // Fetch labels when results change
   useEffect(() => {
@@ -182,15 +218,25 @@ export default function GenomeQuery({
         </form>
 
         <div className="mt-3 flex flex-wrap gap-2 justify-center">
-          {['genes related to caffeine', 'what are my risk variants?', 'MTHFR mutations', 'alcohol metabolism'].map((suggestion) => (
-            <button
-              key={suggestion}
-              onClick={() => setQuery(suggestion)}
-              className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            >
-              {suggestion}
-            </button>
-          ))}
+          {suggestionsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Loading suggestions...
+            </div>
+          ) : (
+            suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => setQuery(suggestion)}
+                className="px-3 py-1 text-sm bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                {suggestion}
+              </button>
+            ))
+          )}
         </div>
       </div>
 

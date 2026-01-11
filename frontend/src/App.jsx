@@ -85,7 +85,19 @@ function AppLayout() {
   const [genomeQueryText, setGenomeQueryText] = useState(() => {
     return sessionStorage.getItem('genomeQueryText') || ''
   })
-  const [genomeQueryLoading, setGenomeQueryLoading] = useState(false)
+  const [genomeQueryLoading, setGenomeQueryLoading] = useState(() => {
+    // Restore loading state, but with a timeout check
+    const savedLoading = sessionStorage.getItem('genomeQueryLoading')
+    const savedTimestamp = sessionStorage.getItem('genomeQueryStarted')
+    if (savedLoading === 'true' && savedTimestamp) {
+      // If query started more than 2 minutes ago, assume it failed
+      const elapsed = Date.now() - parseInt(savedTimestamp, 10)
+      if (elapsed < 120000) {
+        return true
+      }
+    }
+    return false
+  })
   const [genomeQueryResults, setGenomeQueryResults] = useState(() => {
     const saved = sessionStorage.getItem('genomeQueryResults')
     return saved ? JSON.parse(saved) : null
@@ -96,6 +108,13 @@ function AppLayout() {
   useEffect(() => {
     sessionStorage.setItem('genomeQueryText', genomeQueryText)
   }, [genomeQueryText])
+
+  useEffect(() => {
+    sessionStorage.setItem('genomeQueryLoading', genomeQueryLoading.toString())
+    if (genomeQueryLoading) {
+      sessionStorage.setItem('genomeQueryStarted', Date.now().toString())
+    }
+  }, [genomeQueryLoading])
 
   useEffect(() => {
     if (genomeQueryResults) {

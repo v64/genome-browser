@@ -874,3 +874,122 @@ def clear_logs():
     """Clear the log history."""
     agent_state["logs"] = []
     log("system", "Logs cleared")
+
+
+async def generate_query_suggestions() -> list[str]:
+    """
+    Generate thoughtful query suggestions based on recent activity.
+    Uses Claude to create personalized suggestions based on:
+    - Recent queries
+    - Interesting SNPs in the user's genome
+    - Categories/tags that have been explored
+    """
+    import os
+
+    client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+    # Gather context about user's activity and genome
+    context_parts = []
+
+    # Get recent queries from knowledge base
+    try:
+        recent_knowledge = await database.search_knowledge(limit=10)
+        if recent_knowledge:
+            recent_queries = [k.get("query", "") for k in recent_knowledge if k.get("query")][:5]
+            if recent_queries:
+                context_parts.append(f"Recent queries the user has asked:\n" + "\n".join(f"- {q}" for q in recent_queries))
+    except Exception as e:
+        log("error", f"Failed to get recent knowledge: {e}")
+
+    # Get some interesting annotated SNPs (high magnitude, good variety)
+    try:
+        # Get SNPs with high magnitude
+        high_mag_snps, _ = await database.search_snps(min_magnitude=3, limit=10)
+        if high_mag_snps:
+            snp_summaries = []
+            categories_seen = set()
+            for snp in high_mag_snps[:5]:
+                cats = snp.get("categories", [])
+                if isinstance(cats, str):
+                    import json
+                    try:
+                        cats = json.loads(cats)
+                    except:
+                        cats = []
+                for cat in cats:
+                    categories_seen.add(cat)
+                snp_summaries.append(f"- {snp.get('rsid')}: {snp.get('gene', 'unknown gene')}, magnitude {snp.get('magnitude', '?')}, categories: {', '.join(cats[:3]) if cats else 'none'}")
+
+            if snp_summaries:
+                context_parts.append(f"Some notable SNPs in the user's genome:\n" + "\n".join(snp_summaries))
+
+            if categories_seen:
+                context_parts.append(f"Categories represented in their data: {', '.join(list(categories_seen)[:10])}")
+    except Exception as e:
+        log("error", f"Failed to get interesting SNPs: {e}")
+
+    # Get available tags/categories
+    try:
+        all_tags = await database.get_all_tags()
+        if all_tags:
+            top_tags = [t["tag"] for t in all_tags[:15]]
+            context_parts.append(f"Available genetic categories/tags: {', '.join(top_tags)}")
+    except Exception as e:
+        log("error", f"Failed to get tags: {e}")
+
+    # If we have no context, return some sensible defaults
+    if not context_parts:
+        return [
+            "What are my most significant genetic variants?",
+            "Do I have any genes related to caffeine metabolism?",
+            "What does my genome say about longevity?",
+            "Are there any drug metabolism genes I should know about?"
+        ]
+
+    context = "\n\n".join(context_parts)
+
+    prompt = f"""Based on this user's genome browsing activity and data, suggest 4 interesting and personalized queries they might want to ask about their genome.
+
+{context}
+
+Generate 4 query suggestions that:
+1. Are relevant to their browsing history and interests (if any)
+2. Explore areas they haven't asked about yet
+3. Are specific enough to give useful results
+4. Cover different aspects of genetics (health, traits, ancestry, etc.)
+
+Return ONLY a JSON array of 4 strings, nothing else. Example format:
+["query 1", "query 2", "query 3", "query 4"]"""
+
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-3-5-20241022",  # Use haiku for speed/cost
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        response_text = response.content[0].text.strip()
+
+        # Parse the JSON array
+        import json
+        # Handle potential markdown code blocks
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+
+        suggestions = json.loads(response_text)
+
+        if isinstance(suggestions, list) and len(suggestions) > 0:
+            return suggestions[:4]
+
+    except Exception as e:
+        log("error", f"Failed to generate suggestions: {e}")
+
+    # Fallback
+    return [
+        "What are my most significant genetic variants?",
+        "Do I have any risk variants for common diseases?",
+        "What genes affect my metabolism?",
+        "Tell me about my ancestry-related SNPs"
+    ]

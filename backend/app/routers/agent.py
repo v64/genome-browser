@@ -142,3 +142,28 @@ async def get_data_log(
         limit=limit
     )
     return {"entries": entries, "count": len(entries)}
+
+
+@router.get("/suggestions")
+async def get_query_suggestions():
+    """
+    Get personalized query suggestions based on recent activity.
+    Uses Claude to generate thoughtful suggestions based on:
+    - Recent queries
+    - Interesting SNPs in the user's genome
+    - Categories that have been explored
+    """
+    try:
+        suggestions = await learning_agent.generate_query_suggestions()
+        return {"suggestions": suggestions}
+    except Exception as e:
+        # Return fallback suggestions on error
+        return {
+            "suggestions": [
+                "What are my most significant genetic variants?",
+                "Do I have any risk variants for common diseases?",
+                "What genes affect my metabolism?",
+                "Tell me about my ancestry-related SNPs"
+            ],
+            "error": str(e)
+        }
