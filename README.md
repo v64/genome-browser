@@ -2,7 +2,7 @@
 
 A personal genome exploration tool that combines your 23andMe genetic data with Claude AI to help you understand your DNA. Browse your SNPs, get AI-powered interpretations, and build a growing knowledge base about your genetic variants.
 
-![Genome Browser](https://img.shields.io/badge/23andMe-Compatible-green) ![Claude AI](https://img.shields.io/badge/Claude-Powered-purple)
+[![GitHub](https://img.shields.io/github/license/v64/genome-browser)](https://github.com/v64/genome-browser) ![23andMe](https://img.shields.io/badge/23andMe-Compatible-green) ![Claude AI](https://img.shields.io/badge/Claude-Powered-purple)
 
 ## Features
 
@@ -27,8 +27,8 @@ A personal genome exploration tool that combines your 23andMe genetic data with 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/genome.git
-   cd genome
+   git clone https://github.com/v64/genome-browser.git
+   cd genome-browser
    ```
 
 2. **Add your genome data**
