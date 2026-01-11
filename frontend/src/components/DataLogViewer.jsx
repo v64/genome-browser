@@ -16,6 +16,7 @@ export default function DataLogViewer({ onSnpClick }) {
   const [showChat, setShowChat] = useState(true);
   const listRef = useRef(null);
   const chatEndRef = useRef(null);
+  const isAtBottomRef = useRef(true); // Track if user is scrolled to bottom
 
   const fetchStats = async () => {
     try {
@@ -77,9 +78,18 @@ export default function DataLogViewer({ onSnpClick }) {
     fetchChatMessages();
   }, []);
 
-  // Scroll chat to bottom when new messages arrive
+  // Handle chat scroll - track if user is at bottom
+  const handleChatScroll = () => {
+    if (chatEndRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = chatEndRef.current;
+      // Consider "at bottom" if within 50px of the bottom
+      isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 50;
+    }
+  };
+
+  // Scroll chat to bottom when new messages arrive, but only if user was at bottom
   useEffect(() => {
-    if (chatEndRef.current && showChat) {
+    if (chatEndRef.current && showChat && isAtBottomRef.current) {
       chatEndRef.current.scrollTop = chatEndRef.current.scrollHeight;
     }
   }, [chatMessages, showChat]);
@@ -195,6 +205,7 @@ export default function DataLogViewer({ onSnpClick }) {
         {showChat && (
           <div
             ref={chatEndRef}
+            onScroll={handleChatScroll}
             className="max-h-[400px] overflow-y-auto p-4 space-y-4"
           >
             {chatMessages.length === 0 ? (
