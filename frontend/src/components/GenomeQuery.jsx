@@ -197,7 +197,18 @@ export default function GenomeQuery({
               className="w-full px-5 py-4 text-lg bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:border-purple-500 dark:focus:border-purple-400 text-gray-900 dark:text-white placeholder-gray-400 resize-none"
               disabled={loading}
             />
-            <div className="flex justify-center">
+            <div className="flex justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('')
+                  setResults(null)
+                }}
+                disabled={loading || (!query.trim() && !results)}
+                className="px-6 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 disabled:opacity-50 text-gray-700 dark:text-gray-300 rounded-lg font-medium transition-colors"
+              >
+                Reset
+              </button>
               <button
                 type="submit"
                 disabled={loading || !query.trim()}
