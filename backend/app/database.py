@@ -1297,12 +1297,12 @@ async def get_query_history(limit: int = 50, offset: int = 0) -> list[dict]:
     async with aiosqlite.connect(DATABASE_PATH) as db:
         db.row_factory = aiosqlite.Row
 
-        # Get queries that are from the query page (claude_conversation source)
-        # or search summaries
+        # Only get top-level queries from the Query page (search_summary source)
+        # This excludes intermediate Claude calls like genotype interpretations
         query = """
             SELECT id, query, response, snps_mentioned, category, source, created_at
             FROM knowledge
-            WHERE source IN ('claude_conversation', 'search_summary')
+            WHERE source = 'search_summary'
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """
@@ -1321,7 +1321,7 @@ async def get_query_history_count() -> int:
     """Get total count of query history entries."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute(
-            "SELECT COUNT(*) FROM knowledge WHERE source IN ('claude_conversation', 'search_summary')"
+            "SELECT COUNT(*) FROM knowledge WHERE source = 'search_summary'"
         ) as cursor:
             return (await cursor.fetchone())[0]
 
