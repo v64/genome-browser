@@ -1,5 +1,6 @@
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
+import { stripCitations } from '../utils/text'
 
 export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
   const handleFavoriteClick = (e) => {
@@ -26,7 +27,7 @@ export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
           </div>
           {snp.title && (
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {snp.title}
+              {stripCitations(snp.title)}
             </p>
           )}
 
@@ -73,12 +74,12 @@ export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
 
       {snp.summary && (
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
-          {snp.summary}
+          {stripCitations(snp.summary)}
         </p>
       )}
 
       <div className="flex flex-wrap items-center gap-2 mt-3">
-        <ReputeBadge repute={snp.repute} />
+        <ReputeBadge repute={snp.effective_repute} />
 
         {snp.categories?.map((cat) => (
           <button

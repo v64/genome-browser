@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Routes, Route, useNavigate, useLocation, useSearchParams, Navigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api/client'
 import { useFavorites } from './hooks/useFavorites'
 import { useChat } from './hooks/useChat'
 
 import { SearchBar } from './components/SearchBar'
+import { ApiKeyModal } from './components/ApiKeyModal'
+import { GenomeUploadModal } from './components/GenomeUploadModal'
 import { SnpList } from './components/SnpList'
 import { SnpDetailPanel } from './components/SnpDetailPanel'
 import { CategoryFilter } from './components/CategoryFilter'
@@ -210,6 +212,64 @@ function AppLayout() {
 
   const { toggleFavorite: rawToggleFavorite } = useFavorites()
   const chat = useChat()
+  const queryClient = useQueryClient()
+
+  // Check if Claude is configured (needed early for modal logic)
+  const { data: chatStatus } = useQuery({
+    queryKey: ['chatStatus'],
+    queryFn: api.getChatStatus,
+    staleTime: Infinity,
+  })
+
+  // API Key modal state
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false)
+  const [apiKeyDismissed, setApiKeyDismissed] = useState(false)
+
+  // Show API key modal when not configured (after status loads)
+  // Use chatStatus from the query below to avoid showing modal before status is known
+  useEffect(() => {
+    // Only show modal once we have status data and it shows not configured
+    if (chatStatus && chatStatus.configured === false && !apiKeyDismissed) {
+      setShowApiKeyModal(true)
+    }
+  }, [chatStatus, apiKeyDismissed])
+
+  const handleApiKeySuccess = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['chatStatus'] })
+    setShowApiKeyModal(false)
+  }, [queryClient])
+
+  const handleApiKeyClose = useCallback(() => {
+    setShowApiKeyModal(false)
+    setApiKeyDismissed(true)
+  }, [])
+
+  // Genome upload modal state
+  const [showGenomeModal, setShowGenomeModal] = useState(false)
+  const [genomeDismissed, setGenomeDismissed] = useState(false)
+
+  // Check if genome data is loaded
+  const { data: healthData } = useQuery({
+    queryKey: ['health'],
+    queryFn: api.getHealth,
+  })
+
+  // Show genome modal when no data is loaded (after health check loads)
+  useEffect(() => {
+    if (healthData && healthData.snp_count === 0 && !genomeDismissed) {
+      setShowGenomeModal(true)
+    }
+  }, [healthData, genomeDismissed])
+
+  const handleGenomeSuccess = useCallback(() => {
+    // Reload the page to reinitialize everything with new data
+    window.location.reload()
+  }, [])
+
+  const handleGenomeClose = useCallback(() => {
+    setShowGenomeModal(false)
+    setGenomeDismissed(true)
+  }, [])
 
   // Wrap toggleFavorite to also update local allResults state
   const toggleFavorite = (rsid, isFavorite) => {
@@ -221,13 +281,6 @@ function AppLayout() {
       )
     )
   }
-
-  // Check if Claude is configured
-  const { data: chatStatus } = useQuery({
-    queryKey: ['chatStatus'],
-    queryFn: api.getChatStatus,
-    staleTime: Infinity,
-  })
 
   // Check if Claude API is in error/sleep mode and server status
   const [isServerDown, setIsServerDown] = useState(false)
@@ -283,35 +336,23 @@ function AppLayout() {
     return { searchText: search || undefined, tagFromSearch: undefined }
   }, [search])
 
-  // Build search params for traditional browse
-  // Tag from search box (tag:X syntax) is used for tag filtering
+  // Build search params - now supports both tag and label simultaneously
   const browseSearchParams = {
     search: parsedSearch.searchText,
     category: selectedCategories[0] || undefined,
     chromosome: selectedChromosome || undefined,
     tag: parsedSearch.tagFromSearch || undefined,
+    label: selectedLabel || undefined,
     limit: 50,
     offset,
   }
 
-  // Regular SNP search (when no label filter)
-  const { data: regularData, isLoading: regularLoading, isFetching: regularFetching } = useQuery({
+  // Combined SNP search (supports all filters together)
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ['snps', browseSearchParams],
     queryFn: () => api.searchSnps(browseSearchParams),
-    enabled: activeTab === TABS.BROWSE && !selectedLabel && !skipInitialFetch,
+    enabled: activeTab === TABS.BROWSE && !skipInitialFetch,
   })
-
-  // Label-filtered search
-  const { data: labelData, isLoading: labelLoading, isFetching: labelFetching } = useQuery({
-    queryKey: ['snps-by-label', selectedLabel, offset],
-    queryFn: () => api.searchByLabel(selectedLabel, 50, offset),
-    enabled: activeTab === TABS.BROWSE && !!selectedLabel && !skipInitialFetch,
-  })
-
-  // Use the appropriate data based on whether label is selected
-  const data = selectedLabel ? labelData : regularData
-  const isLoading = selectedLabel ? labelLoading : regularLoading
-  const isFetching = selectedLabel ? labelFetching : regularFetching
 
   // Accumulate results for infinite scroll
   useEffect(() => {
@@ -330,7 +371,8 @@ function AppLayout() {
   // Track the last search/filter values to detect actual changes vs initial mount
   const lastFiltersRef = useRef({ search, selectedCategories, selectedChromosome, selectedLabel })
 
-  // Reset offset and clear results when filters change
+  // Track filter changes for sessionStorage cleanup only
+  // Note: Results clearing is now handled directly in filter change handlers to avoid race conditions
   useEffect(() => {
     const prev = lastFiltersRef.current
     const filtersChanged =
@@ -342,18 +384,10 @@ function AppLayout() {
     // Update ref for next comparison
     lastFiltersRef.current = { search, selectedCategories, selectedChromosome, selectedLabel }
 
-    // Skip if filters haven't actually changed (initial mount or same values)
-    if (!filtersChanged) {
-      return
-    }
-
-    setOffset(0)
-    setAllResults([])
-    setSavedHasMore(false)
-    setSavedTotal(0)
-    setSkipInitialFetch(false) // Allow queries to run when filters change
     // Clear stored results since filters changed
-    sessionStorage.removeItem('browseResults')
+    if (filtersChanged) {
+      sessionStorage.removeItem('browseResults')
+    }
   }, [search, selectedCategories, selectedChromosome, selectedLabel])
 
   const handleLoadMore = useCallback(() => {
@@ -364,54 +398,52 @@ function AppLayout() {
     }
   }, [data?.has_more, savedHasMore, isFetching])
 
-  // When selecting a label, clear other filters since they use different queries
+  // Select a label filter (can combine with other filters)
   const handleLabelChange = useCallback((label) => {
     setSelectedLabel(label)
-    if (label) {
-      setSearch('')
-      setSelectedCategories([])
-      setSelectedChromosome(null)
-    }
+    setSkipInitialFetch(false)
+    setOffset(0)
+    setAllResults([])
   }, [])
 
-  // Clear label and tag search when other filters are used
+  // Category filter (can combine with other filters)
   const handleCategoryChange = useCallback((categories) => {
     setSelectedCategories(categories)
-    if (categories.length > 0) {
-      setSelectedLabel(null)
-      // Clear tag search if user selects a category
-      if (search.toLowerCase().startsWith('tag:')) {
-        setSearch('')
-      }
-    }
-  }, [search])
+    setSkipInitialFetch(false)
+    setOffset(0)
+    setAllResults([])
+  }, [])
 
   const handleChromosomeChange = useCallback((chromosome) => {
     setSelectedChromosome(chromosome)
-    if (chromosome) {
-      setSelectedLabel(null)
-      // Clear tag search if user selects a chromosome
-      if (search.toLowerCase().startsWith('tag:')) {
-        setSearch('')
-      }
-    }
-  }, [search])
+    setSkipInitialFetch(false)
+    setOffset(0)
+    setAllResults([])
+  }, [])
 
   const handleSearchChange = useCallback((searchText) => {
     setSearch(searchText)
-    if (searchText) {
-      setSelectedLabel(null)
-    }
+    setSkipInitialFetch(false)
+    setOffset(0)
+    setAllResults([])
   }, [])
 
   const handleTagChange = useCallback((tag) => {
-    // Set the search text directly with tag: prefix
-    if (tag) {
-      setSearch(`tag:${tag}`)
-      setSelectedLabel(null)
-    } else {
-      setSearch('')
-    }
+    setSkipInitialFetch(false)
+    setOffset(0)
+    setAllResults([])
+    setSearch(tag ? `tag:${tag}` : '')
+  }, [])
+
+  // Clear all filters at once
+  const handleClearAllFilters = useCallback(() => {
+    setSearch('')
+    setSelectedCategories([])
+    setSelectedChromosome(null)
+    setSelectedLabel(null)
+    setSkipInitialFetch(false)
+    setOffset(0)
+    setAllResults([])
   }, [])
 
   // Navigation helpers
@@ -590,6 +622,18 @@ function AppLayout() {
           {/* Sidebar (for Browse tab) */}
           {activeTab === TABS.BROWSE && (
             <aside className="w-64 flex-shrink-0 space-y-6">
+              {/* Clear all button - show when any filter is active */}
+              {(parsedSearch.tagFromSearch || selectedLabel || selectedCategories.length > 0 || selectedChromosome) && (
+                <button
+                  onClick={handleClearAllFilters}
+                  className="w-full px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  Clear all filters
+                </button>
+              )}
               <TagFilter
                 selected={parsedSearch.tagFromSearch}
                 onChange={handleTagChange}
@@ -710,6 +754,20 @@ function AppLayout() {
         onSendMessage={chat.sendMessage}
         onClearHistory={chat.clearHistory}
         onSnpClick={handleChatSnpClick}
+      />
+
+      {/* API Key Modal */}
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onClose={handleApiKeyClose}
+        onSuccess={handleApiKeySuccess}
+      />
+
+      {/* Genome Upload Modal */}
+      <GenomeUploadModal
+        isOpen={showGenomeModal}
+        onClose={handleGenomeClose}
+        onSuccess={handleGenomeSuccess}
       />
     </div>
   )

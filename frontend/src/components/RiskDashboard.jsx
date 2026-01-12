@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
 import { LabelBadge } from './LabelBadge'
+import { stripCitations } from '../utils/text'
 
 export function RiskDashboard({ onSnpClick }) {
   const queryClient = useQueryClient()
@@ -323,13 +324,13 @@ export function RiskDashboard({ onSnpClick }) {
                 <div className={isProcessing || isExiting ? 'opacity-50' : ''}>
                   {snp.title && (
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 line-clamp-1">
-                      {snp.title}
+                      {stripCitations(snp.title)}
                     </p>
                   )}
 
                   {snp.summary && (
                     <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
-                      {snp.summary}
+                      {stripCitations(snp.summary)}
                     </p>
                   )}
 
@@ -340,7 +341,7 @@ export function RiskDashboard({ onSnpClick }) {
 
                 <div className={`flex items-center gap-2 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
                   <MagnitudeBadge magnitude={snp.magnitude} />
-                  <ReputeBadge repute={snp.repute} />
+                  <ReputeBadge repute={snp.effective_repute} />
                 </div>
               </button>
               )
@@ -407,20 +408,20 @@ export function RiskDashboard({ onSnpClick }) {
                 {/* Title */}
                 {snp.title && (
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 line-clamp-1">
-                    {snp.title}
+                    {stripCitations(snp.title)}
                   </p>
                 )}
 
                 {/* Summary */}
                 {snp.summary && (
                   <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
-                    {snp.summary}
+                    {stripCitations(snp.summary)}
                   </p>
                 )}
 
                 {/* Badges Row */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <ReputeBadge repute={snp.repute} />
+                  <ReputeBadge repute={snp.effective_repute} />
                   {snp.label && <LabelBadge label={snp.label} size="sm" />}
                   {snp.categories?.slice(0, 2).map((cat) => (
                     <span key={cat} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">
@@ -538,18 +539,18 @@ export function RiskDashboard({ onSnpClick }) {
 
                   {snp.title && (
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 line-clamp-1">
-                      {snp.title}
+                      {stripCitations(snp.title)}
                     </p>
                   )}
 
                   {snp.summary && (
                     <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
-                      {snp.summary}
+                      {stripCitations(snp.summary)}
                     </p>
                   )}
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    <ReputeBadge repute={snp.repute} />
+                    <ReputeBadge repute={snp.effective_repute} />
                     {snp.label && <LabelBadge label={snp.label} size="sm" />}
                     {snp.categories?.slice(0, 2).map((cat) => (
                       <span key={cat} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">

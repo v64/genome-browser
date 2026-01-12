@@ -11,7 +11,7 @@ from .genome_parser import parse_23andme_file, find_genome_file
 from .categories import get_all_priority_snps
 from . import snpedia, claude_service, gene_discovery
 
-from .routers import snps, categories, sync, favorites, export, chat, knowledge, annotations, search, agent, labels
+from .routers import snps, categories, sync, favorites, export, chat, knowledge, annotations, search, agent, labels, settings
 
 # Load environment variables from .env file
 env_path = Path(__file__).parent.parent.parent / ".env"
@@ -76,6 +76,13 @@ async def start_gene_discovery_delayed():
     # Short delay just to let server start
     await asyncio.sleep(5)
 
+    # Check if auto-start is disabled (to save API costs)
+    auto_start_disabled = os.getenv("DISABLE_AUTO_DISCOVERY", "").lower() in ("1", "true", "yes")
+    if auto_start_disabled:
+        print("[DISCOVERY] Auto-start disabled via DISABLE_AUTO_DISCOVERY env var")
+        print("[DISCOVERY] Start manually via POST /api/agent/discovery/start")
+        return
+
     # Only start if Claude is configured
     if claude_service.is_configured():
         print("[DISCOVERY] Starting gene discovery background worker...")
@@ -116,6 +123,7 @@ app.include_router(annotations.router)
 app.include_router(search.router)
 app.include_router(agent.router)
 app.include_router(labels.router)
+app.include_router(settings.router)
 
 
 @app.get("/api/health")

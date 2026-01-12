@@ -391,6 +391,137 @@ def get_genotype_interpretation(genotype_info: dict, user_genotype: str) -> tupl
     return None, None
 
 
+def get_effective_repute(genotype_info: dict, user_genotype: str, snp_repute: str = None, genotype_label: str = None) -> str:
+    """
+    Determine the effective repute for the user's specific genotype.
+
+    The SNPedia 'repute' field indicates if the SNP is generally associated with
+    good/bad outcomes, but it doesn't consider the user's specific genotype.
+
+    This function first checks if a Claude-generated genotype_label exists,
+    which is the most reliable classification. If not, it falls back to
+    analyzing the genotype_info text.
+
+    Returns: 'good', 'bad', or None (neutral/unknown)
+    """
+    # FIRST: Check if we have a Claude-generated label (most reliable)
+    if genotype_label:
+        label_lower = genotype_label.lower()
+        if label_lower in ("risk", "abnormal"):
+            return "bad"
+        elif label_lower == "protective":
+            return "good"
+        elif label_lower in ("normal", "neutral", "carrier", "rare"):
+            return None  # No risk badge for normal/neutral genotypes
+
+    if not genotype_info or not user_genotype:
+        return snp_repute  # Fall back to SNP-level repute if no genotype info
+
+    # Get the interpretation for this user's genotype
+    interpretation, matched_gt = get_genotype_interpretation(genotype_info, user_genotype)
+
+    if not interpretation:
+        return None  # Can't determine, don't show any badge
+
+    text = interpretation.lower()
+
+    # Check for RISK indicators FIRST (these are more specific)
+    risk_phrases = [
+        "increased risk", "elevated risk", "higher risk", "greater risk",
+        "risk factor", "risk variant", "risk allele",
+        "fold increased", "fold higher", "-fold risk", "x increased",
+        "increased susceptibility", "predisposition", "predisposed", "prone to",
+        "likely pathogenic", "causes ", "associated with disease",
+        "loss of function", "reduced function", "decreased function",
+        "deficient", "deficiency", "impaired function",
+        "carriers of this genotype face", "carriers face",
+        "reduced memory", "lower performance", "reduced performance",
+        "lack the beneficial", "lacks the protective",
+        "intermediate risk",
+    ]
+
+    # Phrases that negate risk or indicate good outcomes
+    negating_phrases = [
+        "no increased risk", "not associated with increased",
+        "not associated with a significantly increased",
+        "not associated with a higher", "not associated with any increased",
+        "do not have increased risk", "does not have increased risk",
+        "don't have increased risk", "doesn't have increased risk",
+        "does not confer", "no elevated risk", "without the elevated risk",
+        "typical risk", "normal risk", "baseline risk", "average risk",
+        "standard population risk", "population risk",
+        "reduced susceptibility", "lowest odds", "lowest risk", "lower odds",
+        "protective allele", "protective variant",
+        "non-pathogenic", "not pathogenic", "benign",
+        "common reference genotype", "reference genotype",
+        "normal function", "typical function",
+        "normal allele", "not a carrier", "is not a carrier",
+        "homozygous for the normal", "heterozygous for the normal",
+        "'normal' variant", "\"normal\" variant", "normal variant",
+        "'common' variant", "\"common\" variant", "common variant",
+    ]
+
+    # Check if any negating phrase appears
+    has_negation = any(neg in text for neg in negating_phrases)
+
+    # Special check: "pathogenic" should not match "non-pathogenic"
+    has_pathogenic_risk = "pathogenic" in text and "non-pathogenic" not in text and "not pathogenic" not in text
+
+    # Check for risk - but only if not negated
+    if not has_negation:
+        # Check standalone "pathogenic" (excluding non-pathogenic)
+        if has_pathogenic_risk:
+            return "bad"
+        for phrase in risk_phrases:
+            if phrase in text:
+                return "bad"
+
+    # Check for PROTECTIVE/GOOD indicators
+    # These must clearly refer to THIS genotype, not others
+    good_phrases = [
+        "this genotype is protective", "this is the protective",
+        "protective genotype", "protective variant",
+        "this genotype reduces risk", "this genotype lowers risk",
+        "this genotype is beneficial", "this genotype is favorable",
+        "confers protection", "provides protection",
+    ]
+
+    for phrase in good_phrases:
+        if phrase in text:
+            return "good"
+
+    # Check for NORMAL indicators
+    normal_phrases = [
+        "normal function", "normal genotype", "typical genotype", "common genotype",
+        "normal allele", "standard population risk", "typical risk", "average risk",
+        "wild-type", "wildtype", "wild type", "reference allele", "reference genotype",
+        "most common", "majority of", "vast majority",
+        "does not carry", "do not carry", "not a carrier", "not carrier",
+        "without the mutation", "is not a carrier",
+        "normal metabolizer", "extensive metabolizer",
+        "homozygous for the normal", "heterozygous for the normal",
+    ]
+
+    # Also check if text is very short and just says normal/common
+    text_stripped = text.strip()
+    if text_stripped in ("normal", "common", "typical", "standard", "wild-type", "wildtype"):
+        return None
+
+    for phrase in normal_phrases:
+        if phrase in text:
+            return None  # Normal = no badge
+
+    # If the SNP is marked bad but we didn't find clear risk for this genotype
+    if snp_repute == "bad" and has_negation:
+        return None  # User has the non-risk genotype
+
+    # If we found negating phrases, user likely has normal genotype
+    if has_negation:
+        return None
+
+    return snp_repute
+
+
 def map_categories(wiki_categories: list[str]) -> list[str]:
     """Map SNPedia categories to our simplified category system."""
     categories = []

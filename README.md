@@ -100,7 +100,8 @@ The full page includes:
 - Your genotype highlighted
 - Chromosome location
 - All associated categories and tags
-- "Annotate with Claude" button for AI enhancement
+- **Reanalyze with AI**: Choose quality level (Quick/Standard/Premium) for deeper analysis
+- Source badge showing which AI model tier was used for the annotation
 
 ### Genotype Variants
 
@@ -152,17 +153,32 @@ The Browse tab lets you explore all your SNPs with powerful filtering:
 ### Search & Filter Options
 
 - **Text search**: Search by RS number, gene name, or keywords
-- **Tag filtering**: Use `tag:heart` syntax or click tags in the sidebar
-- **Genotype labels**: Filter by Normal, Abnormal, Rare, or Protective variants
+- **Tag search**: Search and filter by tags with the dedicated search box
+- **Multi-tag selection**: Click multiple tags to filter by combinations
+- **Genotype labels**: Filter by risk, normal, protective, carrier, or neutral variants
 - **Chromosome**: Jump to specific chromosomes
+- **Clear all filters**: Reset all active filters with one click
+
+### Tag Filtering
+
+![Tag Search](screenshots/4.3-browse-tag-search.png)
+
+The tag panel shows common tags (20+ SNPs) by default. Use the search box to find specific tags, or check "Include rare" to see more niche categories.
+
+![Multi-Tag Selection](screenshots/4.4-browse-multi-tag.png)
+
+Select multiple tags to find SNPs at the intersection of categories.
 
 ### Genotype Labels
 
-The sidebar shows your variants organized by classification:
-- **Normal**: Common, typical variants
-- **Abnormal**: Variants associated with increased risk
-- **Rare**: Uncommon variants (low population frequency)
-- **Protective**: Variants associated with reduced risk
+![Label Filter](screenshots/4.2-browse-label-filter.png)
+
+The sidebar shows your variants organized by AI classification:
+- **Risk**: Variants associated with increased risk or adverse effects
+- **Normal**: Common, typical variants (population baseline)
+- **Protective**: Variants associated with reduced risk or beneficial effects
+- **Carrier**: You carry one copy of a recessive variant
+- **Neutral**: Variants with no clear positive or negative impact
 
 ---
 
@@ -306,7 +322,10 @@ On startup, the app automatically fetches annotations for your most important SN
 This app uses the Claude API which has per-token costs:
 - **Queries**: ~$0.01-0.05 per query (Claude Sonnet)
 - **Gene discovery**: ~$0.001-0.01 per discovery (Claude Haiku)
-- **Annotations**: ~$0.02-0.05 per SNP
+- **Annotations** (depends on quality level):
+  - Quick (Haiku): ~$0.001-0.005 per SNP - fast bulk processing
+  - Standard (Sonnet): ~$0.01-0.03 per SNP - balanced detail
+  - Premium (Opus): ~$0.05-0.15 per SNP - comprehensive analysis
 
 Responses are cached in the knowledge base to avoid repeat API calls.
 

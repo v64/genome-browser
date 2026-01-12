@@ -6,19 +6,42 @@ from typing import Optional
 from . import database
 from . import snpedia
 
-# Initialize async client (will use ANTHROPIC_API_KEY env var)
+# Initialize async client (will use ANTHROPIC_API_KEY env var or DB setting)
 client: Optional[AsyncAnthropic] = None
+_current_api_key: Optional[str] = None
+
+
+def get_api_key() -> Optional[str]:
+    """Get API key from environment variable or database."""
+    # First check environment variable (takes precedence)
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if key:
+        return key
+    # Fall back to database setting
+    return database.get_setting_sync("anthropic_api_key")
 
 
 def get_client() -> AsyncAnthropic:
     """Get or create the async Anthropic client."""
-    global client
-    if client is None:
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+    global client, _current_api_key
+
+    api_key = get_api_key()
+    if not api_key:
+        raise ValueError("Claude API key is not configured")
+
+    # Reset client if API key changed
+    if client is None or _current_api_key != api_key:
         client = AsyncAnthropic(api_key=api_key)
+        _current_api_key = api_key
+
     return client
+
+
+def reset_client():
+    """Reset the client to force re-initialization with new API key."""
+    global client, _current_api_key
+    client = None
+    _current_api_key = None
 
 
 def get_system_prompt(snp_count: int, rag_context: str = "", snp_context: str = "") -> str:
@@ -214,8 +237,14 @@ Be specific and cite the rsID. If the local database information seems outdated 
     return await chat(message, snp_context=snp_context)
 
 
-async def improve_annotation(rsid: str, genotype: str, custom_instructions: str = None) -> dict:
-    """Ask Claude to create a comprehensive summary with all available context and citations."""
+async def improve_annotation(rsid: str, genotype: str, custom_instructions: str = None, model: str = "claude-haiku-4-5") -> dict:
+    """Ask Claude to create a comprehensive summary with all available context and citations.
+
+    Args:
+        model: "claude-haiku-4-5" (default, fast/cheap),
+               "claude-sonnet-4-5" (better quality - recommended for important SNPs),
+               "claude-opus-4-5" (best quality, most comprehensive - use for deep analysis)
+    """
     snp_data = await database.get_snp_full_context(rsid)
 
     if not snp_data:
@@ -376,7 +405,14 @@ CRITICAL: Use ONLY the alleles that appear in the existing genotype annotations 
 
 GENOTYPE_INFO STYLE: Write genotype explanations in an encyclopedic, third-person style. Do NOT use phrases like "YOUR GENOTYPE", "You have", "This is your result", etc. Instead write neutrally, e.g., "CC carriers typically..." or "This genotype is associated with..." The UI already shows which genotype belongs to the user.
 
-Only include genotypes that are actually relevant for this SNP. Make the language accessible but thorough. The goal is for this summary to be the definitive reference for everything we know about this SNP."""
+Only include genotypes that are actually relevant for this SNP. Make the language accessible but thorough. The goal is for this summary to be the definitive reference for everything we know about this SNP.
+
+**CRITICAL OUTPUT RULES:**
+1. Your ENTIRE response must be valid JSON - no text before or after the JSON object
+2. Keep summary under 500 words to ensure complete output
+3. Keep each genotype explanation under 100 words
+4. Do not use markdown code fences - just output raw JSON
+5. Ensure all strings are properly escaped (no unescaped quotes or newlines)"""
 
     # Add custom instructions if provided
     if custom_instructions and custom_instructions.strip():
@@ -388,19 +424,68 @@ Only include genotypes that are actually relevant for this SNP. Make the languag
 Please prioritize addressing this specific request while still providing the complete JSON response format."""
 
     response = await anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=2048,
+        model=model,
+        max_tokens=4096,  # Increased for comprehensive annotations
         messages=[{"role": "user", "content": message}]
     )
 
     response_text = response.content[0].text
 
+    # Check if response was truncated
+    if response.stop_reason == "max_tokens":
+        print(f"[CLAUDE] [WARN] [{rsid}] Response truncated (hit max_tokens). May fail to parse.", flush=True)
+
     # Parse JSON from response
     try:
-        # Find JSON in response
-        json_match = re.search(r'\{[\s\S]*\}', response_text)
-        if json_match:
-            improved = json.loads(json_match.group())
+        # Try multiple JSON extraction strategies
+        improved = None
+
+        # Strategy 1: Find JSON block with code fence
+        code_block_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response_text)
+        if code_block_match:
+            try:
+                improved = json.loads(code_block_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 2: Find outermost JSON object
+        if not improved:
+            # Find the first { and last } to get complete JSON
+            first_brace = response_text.find('{')
+            last_brace = response_text.rfind('}')
+            if first_brace != -1 and last_brace > first_brace:
+                json_str = response_text[first_brace:last_brace + 1]
+                try:
+                    improved = json.loads(json_str)
+                except json.JSONDecodeError:
+                    pass
+
+        # Strategy 3: Try the whole response as JSON
+        if not improved:
+            try:
+                improved = json.loads(response_text.strip())
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 4: Try to repair truncated JSON (for max_tokens cutoff)
+        if not improved and response.stop_reason == "max_tokens":
+            # Find the start of JSON and try to close it
+            first_brace = response_text.find('{')
+            if first_brace != -1:
+                partial_json = response_text[first_brace:]
+                # Try adding closing braces/brackets
+                for suffix in ['"}', '"}]}', '"}}', '"}]}']:
+                    try:
+                        improved = json.loads(partial_json + suffix)
+                        print(f"[CLAUDE] [INFO] [{rsid}] Salvaged truncated JSON with suffix: {suffix}", flush=True)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+
+        if improved and isinstance(improved, dict):
+            # Validate we have expected fields
+            if not improved.get("summary") and not improved.get("genotype_info"):
+                print(f"[CLAUDE] [WARN] [{rsid}] Parsed JSON but missing summary/genotype_info: {list(improved.keys())}", flush=True)
 
             # Extract and normalize tags
             tags = improved.get("tags", [])
@@ -409,7 +494,7 @@ Please prioritize addressing this specific request while still providing the com
                 tags = list(set(tag.lower().strip() for tag in tags if isinstance(tag, str) and tag.strip()))
 
             # Extract title
-            title = improved.get("title", "").strip()
+            title = improved.get("title", "").strip() if improved.get("title") else ""
 
             return {
                 "rsid": rsid,
@@ -423,12 +508,16 @@ Please prioritize addressing this specific request while still providing the com
                     "output_tokens": response.usage.output_tokens
                 }
             }
-    except json.JSONDecodeError:
-        pass
+
+        # If we get here, JSON parsing failed completely
+        print(f"[CLAUDE] [WARN] [{rsid}] Failed to parse JSON. Response preview: {response_text[:500]}...", flush=True)
+
+    except Exception as e:
+        print(f"[CLAUDE] [WARN] [{rsid}] Exception during JSON parsing: {e}. Response preview: {response_text[:300]}...", flush=True)
 
     return {
         "error": "Failed to parse Claude's response",
-        "raw_response": response_text
+        "raw_response": response_text[:1000]  # Truncate for safety
     }
 
 
@@ -582,5 +671,5 @@ Format the SNPs as rsIDs (e.g., rs12345) so I can look up my genotypes."""
 
 
 def is_configured() -> bool:
-    """Check if the Claude API is configured."""
-    return bool(os.getenv("ANTHROPIC_API_KEY"))
+    """Check if the Claude API is configured (via env var or database)."""
+    return bool(get_api_key())

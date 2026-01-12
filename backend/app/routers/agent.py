@@ -221,3 +221,53 @@ async def clear_recently_completed(rsid: str = None):
     """Clear a specific rsid from recently completed list, or all if not specified."""
     gene_discovery.clear_recently_completed(rsid)
     return {"status": "cleared", "rsid": rsid}
+
+
+@router.post("/classify-unlabeled")
+async def classify_unlabeled_snps(limit: int = 50):
+    """
+    Find SNPs with genotype interpretations but no classification labels,
+    and ask Claude to classify them.
+
+    This fixes the issue where existing annotations don't have proper
+    risk/normal/protective labels for effective_repute calculation.
+    """
+    result = await learning_agent.batch_classify_unlabeled(limit=limit)
+    return result
+
+
+@router.post("/classify-single/{rsid}")
+async def classify_single_snp(rsid: str):
+    """Classify a single SNP's genotype interpretation."""
+    from .. import snpedia
+
+    # Get the annotation and user's genotype
+    annotation = await database.get_annotation(rsid)
+    if not annotation:
+        raise HTTPException(status_code=404, detail=f"No annotation found for {rsid}")
+
+    snp = await database.get_snp(rsid)
+    if not snp:
+        raise HTTPException(status_code=404, detail=f"SNP {rsid} not found")
+
+    user_genotype = snp.get("genotype")
+    genotype_info = annotation.get("genotype_info", {})
+
+    if not genotype_info or not user_genotype:
+        raise HTTPException(status_code=400, detail="No genotype interpretation available")
+
+    # Get interpretation for user's genotype
+    interpretation, matched_gt = snpedia.get_genotype_interpretation(genotype_info, user_genotype)
+
+    if not interpretation:
+        raise HTTPException(status_code=400, detail="No interpretation found for your genotype")
+
+    # Classify it
+    result = await learning_agent.classify_existing_interpretation(
+        rsid, matched_gt or user_genotype, interpretation
+    )
+
+    if result:
+        return {"status": "classified", "rsid": rsid, "label": result["label"]}
+    else:
+        raise HTTPException(status_code=500, detail="Classification failed")

@@ -1,5 +1,6 @@
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
+import { stripCitations } from '../utils/text'
 
 export function DynamicSearchResults({ results, interpretation, searchType, onSnpClick }) {
   if (!results || results.length === 0) {
@@ -84,7 +85,7 @@ export function DynamicSearchResults({ results, interpretation, searchType, onSn
                 {/* Fallback to summary if no Claude explanation */}
                 {!snp.interpretation && !snp.relevance && snp.summary && (
                   <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
-                    {snp.summary}
+                    {stripCitations(snp.summary)}
                   </p>
                 )}
 
@@ -108,8 +109,8 @@ export function DynamicSearchResults({ results, interpretation, searchType, onSn
                 {snp.magnitude != null && (
                   <MagnitudeBadge magnitude={snp.magnitude} />
                 )}
-                {snp.repute && (
-                  <ReputeBadge repute={snp.repute} />
+                {(snp.effective_repute) && (
+                  <ReputeBadge repute={snp.effective_repute} />
                 )}
               </div>
             </div>

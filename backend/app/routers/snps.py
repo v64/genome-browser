@@ -14,6 +14,8 @@ async def list_snps(
     tag: Optional[str] = Query(None, description="Filter by tag (exact match in categories)"),
     min_magnitude: Optional[float] = Query(None, ge=0, le=10, description="Minimum magnitude"),
     repute: Optional[str] = Query(None, description="Filter by repute: good, bad, neutral"),
+    effective_repute: Optional[str] = Query(None, description="Filter by effective repute (user's genotype): good, bad"),
+    label: Optional[str] = Query(None, description="Filter by genotype label: risk, normal, protective, carrier, neutral"),
     favorites_only: bool = Query(False, description="Show only favorites"),
     limit: int = Query(50, ge=1, le=200, description="Results per page"),
     offset: int = Query(0, ge=0, description="Offset for pagination")
@@ -26,6 +28,8 @@ async def list_snps(
         tag=tag,
         min_magnitude=min_magnitude,
         repute=repute,
+        effective_repute_filter=effective_repute,
+        label=label,
         favorites_only=favorites_only,
         limit=limit,
         offset=offset
@@ -66,6 +70,10 @@ async def get_snp(rsid: str):
     favorites = await database.get_favorites()
     is_favorite = rsid in favorites
 
+    # Get genotype label if available (Claude's classification)
+    genotype_label_data = await database.get_genotype_label(rsid)
+    genotype_label = genotype_label_data.get("label") if genotype_label_data else None
+
     result = {
         **snp,
         "is_favorite": is_favorite,
@@ -80,10 +88,19 @@ async def get_snp(rsid: str):
             genotype_info, snp.get("genotype")
         )
 
+        # Calculate effective repute based on user's actual genotype (use Claude's label if available)
+        effective_repute = snpedia.get_effective_repute(
+            genotype_info,
+            snp.get("genotype"),
+            annotation.get("repute"),
+            genotype_label
+        )
+
         result.update({
             "summary": annotation.get("summary"),
             "magnitude": annotation.get("magnitude"),
             "repute": annotation.get("repute"),
+            "effective_repute": effective_repute,
             "gene": annotation.get("gene"),
             "title": annotation.get("title"),
             "categories": annotation.get("categories", []),
@@ -93,6 +110,7 @@ async def get_snp(rsid: str):
             "matched_genotype": matched_gt,  # Shows which genotype matched (for strand info)
             "source": annotation.get("source"),
             "original_summary": annotation.get("original_summary"),
+            "analysis_model": annotation.get("analysis_model"),
         })
 
     return result
@@ -164,3 +182,75 @@ async def get_snp_full_data(rsid: str):
         result["matched_genotype"] = matched_gt
 
     return result
+
+
+@router.post("/{rsid}/improve")
+async def improve_snp_annotation(
+    rsid: str,
+    quality: str = Query("standard", description="Quality level: quick (haiku), standard (sonnet), premium (opus)")
+):
+    """
+    Request an improved annotation for a SNP using AI.
+
+    Quality levels:
+    - quick: Uses Haiku (fast, cheap) - good for bulk processing
+    - standard: Uses Sonnet (balanced) - good detail and accuracy
+    - premium: Uses Opus (best) - most comprehensive analysis
+    """
+    from .. import claude_service
+
+    # Map quality to model
+    model_map = {
+        "quick": "claude-3-haiku-20240307",
+        "standard": "claude-sonnet-4-5",
+        "premium": "claude-opus-4-5",
+    }
+
+    model = model_map.get(quality, model_map["standard"])
+
+    # Get SNP data
+    snp = await database.get_snp(rsid)
+    if not snp:
+        raise HTTPException(status_code=404, detail=f"SNP {rsid} not found")
+
+    genotype = snp.get("genotype")
+
+    # Improve annotation
+    result = await claude_service.improve_annotation(rsid, genotype, model=model)
+
+    if result.get("error"):
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    # Save the improved annotation
+    new_label = None
+    if result.get("improved_summary"):
+        await database.improve_annotation(
+            rsid=rsid,
+            summary=result["improved_summary"],
+            genotype_info=result.get("improved_genotype_info", {}),
+            title=result.get("title"),
+            categories=result.get("tags", []),
+            analysis_model=model
+        )
+
+        # Also reclassify the genotype label based on new interpretation
+        improved_genotype_info = result.get("improved_genotype_info", {})
+        if improved_genotype_info and genotype:
+            from .. import learning_agent
+            interpretation, _ = snpedia.get_genotype_interpretation(improved_genotype_info, genotype)
+            if interpretation:
+                label_result = await learning_agent.classify_existing_interpretation(rsid, genotype, interpretation)
+                if label_result:
+                    new_label = label_result.get("label")
+
+    return {
+        "rsid": rsid,
+        "quality": quality,
+        "model": model,
+        "title": result.get("title"),
+        "summary": result.get("improved_summary"),
+        "genotype_info": result.get("improved_genotype_info"),
+        "tags": result.get("tags"),
+        "usage": result.get("usage"),
+        "label": new_label
+    }
