@@ -24,7 +24,7 @@ export function RiskDashboard({ onSnpClick }) {
   const { data: processingStatus } = useQuery({
     queryKey: ['processingStatus'],
     queryFn: async () => {
-      const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+      const res = await fetch('/api/agent/discovery/processing')
       return res.json()
     },
     refetchInterval: 1000, // Poll every second for responsive UI

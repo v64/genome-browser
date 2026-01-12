@@ -287,7 +287,7 @@ function AppLayout() {
   const { data: processingStatus } = useQuery({
     queryKey: ['processingStatus'],
     queryFn: async () => {
-      const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+      const res = await fetch('/api/agent/discovery/processing')
       if (!res.ok) throw new Error('Server error')
       return res.json()
     },
@@ -299,7 +299,7 @@ function AppLayout() {
   useEffect(() => {
     const checkServer = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+        const res = await fetch('/api/agent/discovery/processing')
         setIsServerDown(!res.ok)
       } catch {
         setIsServerDown(true)

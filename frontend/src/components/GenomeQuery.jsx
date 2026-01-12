@@ -38,7 +38,7 @@ export default function GenomeQuery({
     const fetchSuggestions = async () => {
       setSuggestionsLoading(true);
       try {
-        const response = await fetch('http://localhost:8000/api/agent/suggestions');
+        const response = await fetch('/api/agent/suggestions');
         if (response.ok) {
           const data = await response.json();
           if (data.suggestions && data.suggestions.length > 0) {
@@ -164,7 +164,7 @@ export default function GenomeQuery({
     setPendingCount(0);
 
     try {
-      const res = await fetch('http://localhost:8000/api/agent/query', {
+      const res = await fetch('/api/agent/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim() })
