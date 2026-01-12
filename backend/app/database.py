@@ -160,6 +160,12 @@ async def init_db():
         await db.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge(category)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_genotype_labels_label ON genotype_labels(label)")
 
+        # Add hidden column to knowledge table if not exists
+        try:
+            await db.execute("ALTER TABLE knowledge ADD COLUMN hidden INTEGER DEFAULT 0")
+        except:
+            pass  # Column already exists
+
         await db.commit()
 
 
@@ -1399,10 +1405,11 @@ async def get_query_history(limit: int = 50, offset: int = 0) -> list[dict]:
 
         # Only get top-level queries from the Query page (search_summary source)
         # This excludes intermediate Claude calls like genotype interpretations
+        # Also exclude hidden entries
         query = """
             SELECT id, query, response, snps_mentioned, category, source, created_at
             FROM knowledge
-            WHERE source = 'search_summary'
+            WHERE source = 'search_summary' AND (hidden IS NULL OR hidden = 0)
             ORDER BY created_at DESC
             LIMIT ? OFFSET ?
         """
@@ -1421,9 +1428,20 @@ async def get_query_history_count() -> int:
     """Get total count of query history entries."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
         async with db.execute(
-            "SELECT COUNT(*) FROM knowledge WHERE source = 'search_summary'"
+            "SELECT COUNT(*) FROM knowledge WHERE source = 'search_summary' AND (hidden IS NULL OR hidden = 0)"
         ) as cursor:
             return (await cursor.fetchone())[0]
+
+
+async def hide_query_history_entry(knowledge_id: int) -> bool:
+    """Hide a query history entry (soft delete)."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute(
+            "UPDATE knowledge SET hidden = 1 WHERE id = ?",
+            (knowledge_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def get_activity_stats() -> dict:

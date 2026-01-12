@@ -1,9 +1,10 @@
 import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import ReactMarkdown from 'react-markdown';
 
 export default function QueryHistory({ onSnpClick, onRerunQuery }) {
+  const queryClient = useQueryClient();
   const [selectedEntry, setSelectedEntry] = useState(null);
   const [offset, setOffset] = useState(0);
   const limit = 20;
@@ -13,6 +14,12 @@ export default function QueryHistory({ onSnpClick, onRerunQuery }) {
     queryFn: () => api.getQueryHistory(limit, offset),
     keepPreviousData: true,
   });
+
+  const handleHideEntry = async (e, entryId) => {
+    e.stopPropagation();
+    await api.hideQueryHistoryEntry(entryId);
+    queryClient.invalidateQueries({ queryKey: ['queryHistory'] });
+  };
 
   const entries = data?.entries || [];
   const total = data?.total || 0;
@@ -120,6 +127,15 @@ export default function QueryHistory({ onSnpClick, onRerunQuery }) {
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => handleHideEntry(e, entry.id)}
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                  title="Hide this query"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
                 {onRerunQuery && (
                   <button
                     onClick={(e) => {

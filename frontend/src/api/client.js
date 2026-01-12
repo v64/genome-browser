@@ -84,6 +84,8 @@ export const api = {
   getKnowledgeEntry: (id) => fetchApi(`/knowledge/${id}`),
   getQueryHistory: (limit = 50, offset = 0) =>
     fetchApi(`/knowledge/history?limit=${limit}&offset=${offset}`),
+  hideQueryHistoryEntry: (id) =>
+    fetchApi(`/knowledge/history/${id}/hide`, { method: 'POST' }),
   updateKnowledge: (id, data) =>
     fetchApi(`/knowledge/${id}`, {
       method: 'PUT',

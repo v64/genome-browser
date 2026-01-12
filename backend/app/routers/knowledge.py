@@ -62,6 +62,15 @@ async def get_query_history(
     }
 
 
+@router.post("/history/{knowledge_id}/hide")
+async def hide_query_history_entry(knowledge_id: int):
+    """Hide a query history entry (soft delete)."""
+    success = await database.hide_query_history_entry(knowledge_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Query not found")
+    return {"status": "hidden", "id": knowledge_id}
+
+
 @router.get("/similar")
 async def find_similar(
     query: str = Query(..., description="Query to find similar knowledge for"),
