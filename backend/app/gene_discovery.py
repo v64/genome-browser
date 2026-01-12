@@ -19,6 +19,7 @@ from . import database
 discovery_state = {
     "is_running": False,
     "should_stop": False,
+    "api_error_sleep_until": None,  # Timestamp when API error sleep ends
     "explored_snps": set(),       # SNPs we've already queried Claude about
     "discovery_queue": [],        # rsIDs waiting to be explored
     "discovered_count": 0,        # Total new SNPs discovered
@@ -41,6 +42,7 @@ MAX_QUEUE_SIZE = 1000
 CYCLE_DELAY_SECONDS = 2          # Delay between discovery cycles
 IMPROVEMENT_DELAY_SECONDS = 1    # Delay between improvement calls
 RANDOM_SNP_INTERVAL = 3          # Inject random SNP every N cycles
+API_ERROR_SLEEP_MINUTES = 1      # Sleep time after Anthropic API errors
 
 
 def log_discovery(message: str, level: str = "INFO"):
@@ -97,6 +99,42 @@ async def log_claude_conversation(prompt: str, response: str, snps_mentioned: li
         )
     except Exception as e:
         log_discovery(f"Failed to log Claude conversation: {e}", "ERROR")
+
+
+def is_anthropic_api_error(error: Exception) -> bool:
+    """Check if an error is an Anthropic API error that should trigger a sleep."""
+    error_str = str(error).lower()
+    # Check for common Anthropic API errors
+    return any(phrase in error_str for phrase in [
+        "credit balance",
+        "rate limit",
+        "too many requests",
+        "api key",
+        "authentication",
+        "invalid_request_error",
+        "overloaded",
+        "529",  # Overloaded status code
+        "429",  # Rate limit status code
+    ])
+
+
+async def trigger_api_error_sleep(error: Exception, context: str):
+    """Stop workers and sleep when an Anthropic API error occurs."""
+    sleep_seconds = API_ERROR_SLEEP_MINUTES * 60
+    wake_time = datetime.now().timestamp() + sleep_seconds
+    discovery_state["api_error_sleep_until"] = wake_time
+
+    log_discovery(f"Anthropic API error in {context}: {error}", "ERROR")
+    log_discovery(f"Stopping all workers and sleeping for {API_ERROR_SLEEP_MINUTES} minute(s)...", "WARN")
+
+    # Clear currently processing since we're stopping
+    discovery_state["currently_processing"].clear()
+
+    # Sleep
+    await asyncio.sleep(sleep_seconds)
+
+    discovery_state["api_error_sleep_until"] = None
+    log_discovery(f"Resuming after {API_ERROR_SLEEP_MINUTES} minute sleep", "INFO")
 
 
 def get_claude_client() -> Optional[AsyncAnthropic]:
@@ -174,6 +212,8 @@ Do not include {rsid} itself."""
             "error": str(e),
             "context": f"query_related_snps({rsid})"
         })
+        if is_anthropic_api_error(e):
+            await trigger_api_error_sleep(e, f"query_related_snps({rsid})")
         return []
 
 
@@ -221,6 +261,8 @@ If you don't have specific information about this SNP, provide your best assessm
 
     except Exception as e:
         log_discovery(f"Error exploring SNP {rsid}: {e}", "ERROR")
+        if is_anthropic_api_error(e):
+            await trigger_api_error_sleep(e, f"explore_snp_with_claude({rsid})")
 
     return {}
 
@@ -332,6 +374,8 @@ async def improve_snp(rsid: str) -> bool:
     except Exception as e:
         log_discovery(f"  Error improving {rsid}: {e}", "ERROR")
         discovery_state["currently_processing"].discard(rsid)
+        if is_anthropic_api_error(e):
+            await trigger_api_error_sleep(e, f"improve_snp({rsid})")
 
     return False
 
@@ -701,6 +745,7 @@ def get_status() -> dict:
     """Get current status of the discovery worker."""
     return {
         "is_running": discovery_state["is_running"],
+        "api_error_sleep_until": discovery_state["api_error_sleep_until"],
         "explored_count": len(discovery_state["explored_snps"]),
         "queue_size": len(discovery_state["discovery_queue"]),
         "discovered_count": discovery_state["discovered_count"],
@@ -720,7 +765,8 @@ def get_processing_status() -> dict:
     return {
         "currently_processing": list(discovery_state["currently_processing"]),
         "recently_completed": discovery_state["recently_completed"],
-        "is_running": discovery_state["is_running"]
+        "is_running": discovery_state["is_running"],
+        "api_error_sleep_until": discovery_state["api_error_sleep_until"]
     }
 
 

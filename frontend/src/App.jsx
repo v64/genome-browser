@@ -229,6 +229,34 @@ function AppLayout() {
     staleTime: Infinity,
   })
 
+  // Check if Claude API is in error/sleep mode
+  const { data: processingStatus } = useQuery({
+    queryKey: ['processingStatus'],
+    queryFn: async () => {
+      const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+      return res.json()
+    },
+    refetchInterval: 5000,
+  })
+  const apiErrorSleepUntil = processingStatus?.api_error_sleep_until
+  const [countdownSeconds, setCountdownSeconds] = useState(null)
+
+  useEffect(() => {
+    if (!apiErrorSleepUntil) {
+      setCountdownSeconds(null)
+      return
+    }
+
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil(apiErrorSleepUntil - Date.now() / 1000))
+      setCountdownSeconds(remaining)
+    }
+
+    updateCountdown()
+    const interval = setInterval(updateCountdown, 1000)
+    return () => clearInterval(interval)
+  }, [apiErrorSleepUntil])
+
   // Parse tag: prefix from search box
   const parsedSearch = useMemo(() => {
     if (search.toLowerCase().startsWith('tag:')) {
@@ -441,6 +469,11 @@ function AppLayout() {
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 Genome Browser
               </h1>
+              {countdownSeconds != null && countdownSeconds > 0 && (
+                <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded">
+                  Claude Offline - retry in {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-4">
