@@ -136,3 +136,13 @@
 .animate-fade-out {
   animation: fadeSlideOut 0.5s ease-out forwards;
 }
+
+/* Hide scrollbar for horizontal scroll areas */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

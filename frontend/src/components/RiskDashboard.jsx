@@ -200,14 +200,14 @@ export function RiskDashboard({ onSnpClick }) {
       </div>
 
       {/* Genome Stats Bar */}
-      <div className="flex items-center gap-6 text-sm text-gray-500 dark:text-gray-400">
-        <span>{dashboard?.total_snps?.toLocaleString()} total SNPs</span>
-        <span className="text-gray-300 dark:text-gray-600">•</span>
+      <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+        <span>{dashboard?.total_snps?.toLocaleString()} SNPs</span>
+        <span className="hidden sm:inline text-gray-300 dark:text-gray-600">•</span>
         <span>{dashboard?.annotated_snps?.toLocaleString()} annotated</span>
-        <span className="text-gray-300 dark:text-gray-600">•</span>
-        <span>{activityStats.knowledge_entries || 0} knowledge entries</span>
-        <span className="text-gray-300 dark:text-gray-600">•</span>
-        <span>{activityStats.recent_activity_count || 0} actions this week</span>
+        <span className="hidden sm:inline text-gray-300 dark:text-gray-600">•</span>
+        <span>{activityStats.knowledge_entries || 0} knowledge</span>
+        <span className="hidden sm:inline text-gray-300 dark:text-gray-600">•</span>
+        <span>{activityStats.recent_activity_count || 0} this week</span>
       </div>
 
       {/* Needs Attention Section */}
@@ -307,12 +307,12 @@ export function RiskDashboard({ onSnpClick }) {
                   )}
                 </div>
 
-                <div className={`flex items-center gap-2 mb-2 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
+                <div className={`flex items-center gap-2 mb-2 pr-6 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
                   <span className="font-mono font-semibold text-orange-600 dark:text-orange-400">
                     {snp.rsid}
                   </span>
                   {snp.gene && (
-                    <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs">
+                    <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs truncate max-w-[120px]">
                       {snp.gene}
                     </span>
                   )}

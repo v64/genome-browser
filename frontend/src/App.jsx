@@ -248,6 +248,9 @@ function AppLayout() {
   const [showGenomeModal, setShowGenomeModal] = useState(false)
   const [genomeDismissed, setGenomeDismissed] = useState(false)
 
+  // Mobile filter sidebar toggle
+  const [showMobileFilters, setShowMobileFilters] = useState(false)
+
   // Check if genome data is loaded
   const { data: healthData } = useQuery({
     queryKey: ['health'],
@@ -513,25 +516,25 @@ function AppLayout() {
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
-              <span className="text-2xl">🧬</span>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 min-h-[4rem] py-2">
+            <div className="flex items-center gap-2 sm:gap-3 cursor-pointer" onClick={() => navigate('/')}>
+              <span className="text-xl sm:text-2xl">🧬</span>
+              <h1 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">
                 Genome Browser
               </h1>
               {isServerDown && (
                 <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded">
-                  Server Not Running
+                  Server Down
                 </span>
               )}
               {!isServerDown && countdownSeconds != null && countdownSeconds > 0 && (
                 <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded">
-                  Claude Offline - retry in {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
+                  Claude {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <SyncStatus />
               <ExportButton />
               <DarkModeToggle />
@@ -542,115 +545,133 @@ function AppLayout() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Tabs */}
-        <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-fit mx-auto">
+        <div className="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg w-full sm:w-fit mx-auto overflow-x-auto scrollbar-hide">
           <button
             onClick={() => setActiveTab(TABS.DASHBOARD)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap ${
               activeTab === TABS.DASHBOARD
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
             Dashboard
-            <span className="ml-1 text-xs text-gray-400">[1]</span>
+            <span className="ml-1 text-xs text-gray-400 hidden sm:inline">[1]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.QUERY)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-3 sm:px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === TABS.QUERY
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
             Query
-            <span className="text-xs text-gray-400">[2]</span>
+            <span className="text-xs text-gray-400 hidden sm:inline">[2]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.HISTORY)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-1.5 ${
+            className={`px-3 sm:px-4 py-2 rounded-md font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === TABS.HISTORY
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             History
-            <span className="text-xs text-gray-400">[3]</span>
+            <span className="text-xs text-gray-400 hidden sm:inline">[3]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.BROWSE)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap ${
               activeTab === TABS.BROWSE
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
             Browse
-            <span className="ml-1 text-xs text-gray-400">[4]</span>
+            <span className="ml-1 text-xs text-gray-400 hidden sm:inline">[4]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.DATA)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap ${
               activeTab === TABS.DATA
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            Data Log
-            <span className="ml-1 text-xs text-gray-400">[5]</span>
+            Data
+            <span className="ml-1 text-xs text-gray-400 hidden sm:inline">[5]</span>
           </button>
           <button
             onClick={() => setActiveTab(TABS.FAVORITES)}
-            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+            className={`px-3 sm:px-4 py-2 rounded-md font-medium transition-colors whitespace-nowrap ${
               activeTab === TABS.FAVORITES
                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                 : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
-            Favorites
-            <span className="ml-1 text-xs text-gray-400">[6]</span>
+            Favs
+            <span className="ml-1 text-xs text-gray-400 hidden sm:inline">[6]</span>
           </button>
         </div>
 
         {/* Main Content */}
-        <div className="flex gap-6">
+        <div className="flex flex-col md:flex-row gap-6">
           {/* Sidebar (for Browse tab) */}
           {activeTab === TABS.BROWSE && (
-            <aside className="w-64 flex-shrink-0 space-y-6">
-              {/* Clear all button - show when any filter is active */}
-              {(parsedSearch.tagFromSearch || selectedLabel || selectedCategories.length > 0 || selectedChromosome) && (
-                <button
-                  onClick={handleClearAllFilters}
-                  className="w-full px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                  Clear all filters
-                </button>
-              )}
-              <TagFilter
-                selected={parsedSearch.tagFromSearch}
-                onChange={handleTagChange}
-              />
-              <LabelFilterPanel
-                selected={selectedLabel}
-                onChange={handleLabelChange}
-              />
-              <CategoryFilter
-                selected={selectedCategories}
-                onChange={handleCategoryChange}
-              />
-              <ChromosomeBrowser
-                selected={selectedChromosome}
-                onChange={handleChromosomeChange}
-              />
-            </aside>
+            <>
+              {/* Mobile filter toggle */}
+              <button
+                onClick={() => setShowMobileFilters(!showMobileFilters)}
+                className="md:hidden flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                {showMobileFilters ? 'Hide Filters' : 'Show Filters'}
+                {(parsedSearch.tagFromSearch || selectedLabel || selectedCategories.length > 0 || selectedChromosome) && (
+                  <span className="px-1.5 py-0.5 bg-blue-500 text-white text-xs rounded-full">
+                    Active
+                  </span>
+                )}
+              </button>
+
+              <aside className={`${showMobileFilters ? 'block' : 'hidden'} md:block w-full md:w-64 flex-shrink-0 space-y-6`}>
+                {/* Clear all button - show when any filter is active */}
+                {(parsedSearch.tagFromSearch || selectedLabel || selectedCategories.length > 0 || selectedChromosome) && (
+                  <button
+                    onClick={handleClearAllFilters}
+                    className="w-full px-3 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Clear all filters
+                  </button>
+                )}
+                <TagFilter
+                  selected={parsedSearch.tagFromSearch}
+                  onChange={handleTagChange}
+                />
+                <LabelFilterPanel
+                  selected={selectedLabel}
+                  onChange={handleLabelChange}
+                />
+                <CategoryFilter
+                  selected={selectedCategories}
+                  onChange={handleCategoryChange}
+                />
+                <ChromosomeBrowser
+                  selected={selectedChromosome}
+                  onChange={handleChromosomeChange}
+                />
+              </aside>
+            </>
           )}
 
           {/* Main Content Area */}
