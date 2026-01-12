@@ -230,7 +230,8 @@ function AppLayout() {
   })
 
   // Check if Claude API is in error/sleep mode and server status
-  const { data: processingStatus, isError: isServerDown } = useQuery({
+  const [isServerDown, setIsServerDown] = useState(false)
+  const { data: processingStatus } = useQuery({
     queryKey: ['processingStatus'],
     queryFn: async () => {
       const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
@@ -240,6 +241,21 @@ function AppLayout() {
     refetchInterval: 5000,
     retry: false,
   })
+
+  // Track server connectivity via separate polling effect
+  useEffect(() => {
+    const checkServer = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+        setIsServerDown(!res.ok)
+      } catch {
+        setIsServerDown(true)
+      }
+    }
+    const interval = setInterval(checkServer, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
   const apiErrorSleepUntil = processingStatus?.api_error_sleep_until
   const [countdownSeconds, setCountdownSeconds] = useState(null)
 
