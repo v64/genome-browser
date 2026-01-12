@@ -229,14 +229,16 @@ function AppLayout() {
     staleTime: Infinity,
   })
 
-  // Check if Claude API is in error/sleep mode
-  const { data: processingStatus } = useQuery({
+  // Check if Claude API is in error/sleep mode and server status
+  const { data: processingStatus, isError: isServerDown } = useQuery({
     queryKey: ['processingStatus'],
     queryFn: async () => {
       const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+      if (!res.ok) throw new Error('Server error')
       return res.json()
     },
     refetchInterval: 5000,
+    retry: false,
   })
   const apiErrorSleepUntil = processingStatus?.api_error_sleep_until
   const [countdownSeconds, setCountdownSeconds] = useState(null)
@@ -469,7 +471,12 @@ function AppLayout() {
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">
                 Genome Browser
               </h1>
-              {countdownSeconds != null && countdownSeconds > 0 && (
+              {isServerDown && (
+                <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded">
+                  Server Not Running
+                </span>
+              )}
+              {!isServerDown && countdownSeconds != null && countdownSeconds > 0 && (
                 <span className="px-2 py-1 text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 rounded">
                   Claude Offline - retry in {Math.floor(countdownSeconds / 60)}:{(countdownSeconds % 60).toString().padStart(2, '0')}
                 </span>
