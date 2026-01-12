@@ -447,7 +447,16 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                     All Genotype Variants
                   </h3>
                   <div className="space-y-2">
-                    {Object.entries(editing ? editedGenotypes : snp.genotype_info || {}).map(([gt, info]) => {
+                    {Object.entries(editing ? editedGenotypes : snp.genotype_info || {})
+                      .sort(([gtA], [gtB]) => {
+                        // Sort user's genotype to top
+                        const aIsYours = gtA === snp.genotype || gtA === snp.matched_genotype;
+                        const bIsYours = gtB === snp.genotype || gtB === snp.matched_genotype;
+                        if (aIsYours && !bIsYours) return -1;
+                        if (!aIsYours && bIsYours) return 1;
+                        return 0;
+                      })
+                      .map(([gt, info]) => {
                       const isYours = gt === snp.genotype || gt === snp.matched_genotype
                       return (
                         <div
