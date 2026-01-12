@@ -390,11 +390,6 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                   <span className="text-2xl font-mono font-bold text-gray-900 dark:text-white">
                     {snp.matched_genotype || snp.genotype}
                   </span>
-                  {snp.matched_genotype && snp.matched_genotype !== snp.genotype && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      (23andMe reports {snp.genotype} on opposite strand)
-                    </span>
-                  )}
                 </div>
 
                 {snp.your_interpretation && (
@@ -471,7 +466,7 @@ export function SnpDetailPanel({ rsid, onClose, onToggleFavorite, onAskClaude, o
                             {gt}
                             {isYours && (
                               <span className="ml-2 text-xs text-blue-600 dark:text-blue-400">
-                                (You{gt !== snp.genotype ? ` - your ${snp.genotype} on opposite strand` : ''})
+                                (You)
                               </span>
                             )}
                           </span>
