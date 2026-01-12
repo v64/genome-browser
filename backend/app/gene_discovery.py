@@ -42,7 +42,7 @@ MAX_QUEUE_SIZE = 1000
 CYCLE_DELAY_SECONDS = 2          # Delay between discovery cycles
 IMPROVEMENT_DELAY_SECONDS = 1    # Delay between improvement calls
 RANDOM_SNP_INTERVAL = 3          # Inject random SNP every N cycles
-API_ERROR_SLEEP_MINUTES = 1      # Sleep time after Anthropic API errors
+API_ERROR_SLEEP_MINUTES = 15     # Sleep time after Anthropic API errors
 
 
 def log_discovery(message: str, level: str = "INFO"):
