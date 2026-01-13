@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { LabelBadge } from './LabelBadge';
 import { api } from '../api/client';
+import { stripCitations } from '../utils/text';
 
 const DEFAULT_SUGGESTIONS = [
   "What are my most significant genetic variants?",
@@ -37,7 +38,7 @@ export default function GenomeQuery({
     const fetchSuggestions = async () => {
       setSuggestionsLoading(true);
       try {
-        const response = await fetch('http://localhost:8000/api/agent/suggestions');
+        const response = await fetch('/api/agent/suggestions');
         if (response.ok) {
           const data = await response.json();
           if (data.suggestions && data.suggestions.length > 0) {
@@ -163,7 +164,7 @@ export default function GenomeQuery({
     setPendingCount(0);
 
     try {
-      const res = await fetch('http://localhost:8000/api/agent/query', {
+      const res = await fetch('/api/agent/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim() })
@@ -363,7 +364,7 @@ export default function GenomeQuery({
                           {/* Title */}
                           {snp.title && (
                             <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                              {snp.title}
+                              {stripCitations(snp.title)}
                             </p>
                           )}
 
@@ -376,15 +377,15 @@ export default function GenomeQuery({
                             {labels[snp.rsid]?.label && (
                               <LabelBadge label={labels[snp.rsid].label} size="xs" />
                             )}
-                            {snp.repute && (
+                            {snp.effective_repute && (
                               <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
-                                snp.repute === 'good'
+                                snp.effective_repute === 'good'
                                   ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300'
-                                  : snp.repute === 'bad'
+                                  : snp.effective_repute === 'bad'
                                   ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'
                                   : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                               }`}>
-                                {snp.repute === 'good' ? 'Favorable' : snp.repute === 'bad' ? 'Risk variant' : 'Neutral'}
+                                {snp.effective_repute === 'good' ? 'Favorable' : snp.effective_repute === 'bad' ? 'Risk variant' : 'Neutral'}
                               </span>
                             )}
                           </div>

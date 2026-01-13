@@ -7,6 +7,7 @@ and saves everything to the knowledge base and annotations.
 import asyncio
 import re
 import json
+import aiosqlite
 from datetime import datetime
 from typing import Optional, Callable
 from anthropic import AsyncAnthropic
@@ -261,11 +262,17 @@ async def lookup_genotypes_for_claude(rsids: list[str]) -> str:
     return "Here is the user's genotype data:\n\n" + "\n".join(results)
 
 
-async def query_claude(prompt: str, system_context: str = None) -> str:
-    """Send a query to Claude and return the response. All exchanges are persisted."""
-    import os
+async def query_claude(prompt: str, system_context: str = None, model: str = "claude-sonnet-4-5") -> str:
+    """Send a query to Claude and return the response. All exchanges are persisted.
 
-    client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    Args:
+        prompt: The prompt to send
+        system_context: Optional system prompt
+        model: Model to use - "claude-sonnet-4-5" (default) or "claude-haiku-3-5-20241022" (cheaper)
+    """
+    from . import claude_service
+
+    client = claude_service.get_client()
 
     system = system_context or """You are a genetics research assistant. When discussing SNPs,
 always mention specific rsIDs (like rs12345). Be concise but informative."""
@@ -275,7 +282,7 @@ always mention specific rsIDs (like rs12345). Be concise but informative."""
 
     try:
         response = await client.messages.create(
-            model="claude-sonnet-4-5",
+            model=model,
             max_tokens=2000,
             system=system,
             messages=[{"role": "user", "content": prompt}]
@@ -296,7 +303,7 @@ always mention specific rsIDs (like rs12345). Be concise but informative."""
             metadata={
                 "prompt": prompt,
                 "rsids_mentioned": rsids_found,
-                "model": "claude-sonnet-4-5",
+                "model": model,
                 "tokens_used": getattr(response.usage, 'output_tokens', None)
             }
         )
@@ -337,23 +344,29 @@ async def interpret_genotype(rsid: str, genotype: str, context: str = "") -> str
         log("system", f"Using cached interpretation for {rsid} {genotype}")
         return existing["genotype_info"][genotype]
 
-    prompt = f"""For the SNP {rsid}, what does having the {genotype} genotype mean?
+    prompt = f"""For the SNP {rsid}, the user has genotype {genotype}. What does THIS SPECIFIC GENOTYPE mean for them?
 {f'Context: {context}' if context else ''}
 
-Be specific about health implications, traits, or other effects.
+Be specific about health implications, traits, or other effects FOR THIS GENOTYPE.
 
-IMPORTANT: At the END of your response, add a classification line in this exact format:
+IMPORTANT: At the END of your response, classify THIS USER'S SPECIFIC GENOTYPE ({genotype}) in this exact format:
 CLASSIFICATION: [label] | [confidence] | [frequency]
 
 Where:
-- label is one of: normal, abnormal, rare, protective, risk, carrier, neutral
+- label describes THIS GENOTYPE specifically (not the SNP in general):
+  - "normal" = this is the common/typical/wild-type genotype (most people have this)
+  - "protective" = this genotype reduces risk or provides benefit vs the typical
+  - "risk" = this genotype increases risk or has negative effects
+  - "abnormal" = this genotype is atypical and has notable effects
+  - "rare" = this genotype is uncommon (<5% of population)
+  - "carrier" = heterozygous for a recessive condition
+  - "neutral" = no significant known effects for this genotype
 - confidence is one of: high, medium, low
-- frequency is the approximate population percentage if known (e.g., "45%" or "unknown")
+- frequency is the approximate population percentage who have THIS GENOTYPE (e.g., "45%" or "unknown")
 
-Example endings:
-"CLASSIFICATION: normal | high | 45%"
-"CLASSIFICATION: rare | medium | 2%"
-"CLASSIFICATION: risk | high | 15%"
+CRITICAL: If the SNP is "associated with disease risk" but THIS genotype ({genotype}) is the common/non-risk version, classify it as "normal" NOT "risk".
+
+Example: If rs429358 is associated with Alzheimer's risk via the ε4 allele, but the user has TT (no ε4), classify as "normal | high | 75%"
 
 Keep the main interpretation to 2-3 sentences, then add the classification line."""
 
@@ -407,6 +420,106 @@ def extract_genotype_classification(text: str) -> Optional[dict]:
             "frequency": frequency
         }
     return None
+
+
+async def classify_existing_interpretation(rsid: str, genotype: str, interpretation: str) -> Optional[dict]:
+    """Ask Claude to classify an existing interpretation that doesn't have a label."""
+    prompt = f"""Classify genotype {genotype} for SNP {rsid}.
+
+INTERPRETATION: "{interpretation}"
+
+OUTPUT FORMAT: CLASSIFICATION: label | confidence | frequency%
+
+LABELS (choose one):
+• risk = UNCOMMON variant with clearly elevated risk (NOT the common/baseline genotype)
+• normal = "common variant", "normal allele", "wild-type", "reference", "baseline risk", OR frequency >30%
+• protective = "reduces risk", "protective", "beneficial effect", "lower risk than baseline"
+• carrier = "carrier" + person is described as healthy/unaffected (just passes gene to children)
+• neutral = only affects non-health traits (eye color, earwax, taste perception)
+
+CRITICAL RULES:
+1. "common variant", "normal variant", "most common genotype" → normal (NEVER risk)
+2. Population frequency >30% → normal (this IS the population baseline)
+3. "baseline risk" or "typical risk" → normal (not elevated)
+4. "highest risk at this locus" BUT also "common/normal" → normal (protective alleles exist but this is baseline)
+5. Only classify as "risk" if: UNCOMMON (<20% frequency) AND has elevated risk vs baseline
+6. Modest OR (1.1-1.3) with high frequency = normal, not risk
+
+Output ONLY: CLASSIFICATION: label | confidence | frequency%"""
+
+    try:
+        # Use Haiku for classification - 12x cheaper and 86% accurate for this task
+        response = await query_claude(prompt, model="claude-3-haiku-20240307")
+        label_info = extract_genotype_classification(response)
+
+        if label_info:
+            await database.set_genotype_label(
+                rsid=rsid,
+                label=label_info["label"],
+                confidence=label_info.get("confidence"),
+                population_frequency=label_info.get("frequency"),
+                notes=f"Genotype: {genotype} (reclassified)",
+                source="claude"
+            )
+            log("system", f"Reclassified {rsid} ({genotype}) as: {label_info['label']}")
+            return label_info
+    except Exception as e:
+        log("error", f"Failed to classify {rsid}: {str(e)}")
+
+    return None
+
+
+async def batch_classify_unlabeled(limit: int = 50) -> dict:
+    """Find SNPs with interpretations but no labels and classify them."""
+    from . import snpedia
+
+    # Find annotations with genotype_info but no corresponding label
+    async with aiosqlite.connect(database.DATABASE_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        query = """
+            SELECT a.rsid, a.genotype_info, s.genotype
+            FROM annotations a
+            JOIN snps s ON a.rsid = s.rsid
+            LEFT JOIN genotype_labels gl ON a.rsid = gl.rsid
+            WHERE a.genotype_info IS NOT NULL
+              AND a.genotype_info != '{}'
+              AND gl.rsid IS NULL
+            LIMIT ?
+        """
+
+        async with db.execute(query, (limit,)) as cursor:
+            rows = await cursor.fetchall()
+
+    classified = 0
+    failed = 0
+
+    for row in rows:
+        rsid = row["rsid"]
+        user_genotype = row["genotype"]
+        genotype_info = json.loads(row["genotype_info"]) if row["genotype_info"] else {}
+
+        if not genotype_info or not user_genotype:
+            continue
+
+        # Get the interpretation for the user's genotype
+        interpretation, matched_gt = snpedia.get_genotype_interpretation(genotype_info, user_genotype)
+
+        if interpretation:
+            result = await classify_existing_interpretation(rsid, matched_gt or user_genotype, interpretation)
+            if result:
+                classified += 1
+            else:
+                failed += 1
+
+            # Rate limit
+            await asyncio.sleep(0.5)
+
+    return {
+        "classified": classified,
+        "failed": failed,
+        "total_found": len(rows)
+    }
 
 
 async def save_genotype_interpretation(rsid: str, genotype: str, interpretation: str):
@@ -478,12 +591,12 @@ async def process_generic_query(query: str) -> dict:
     3. Extract final rsIDs and provide interpretations
     4. Return structured results
     """
-    import os
+    from . import claude_service
 
     log("system", f"Processing query: {query}")
     agent_state["current_task"] = f"Processing: {query}"
 
-    client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = claude_service.get_client()
 
     # System prompt that enables Claude to request genome data
     system_prompt = """You are a genetics research assistant with access to the user's 23andMe genome data.
@@ -656,6 +769,19 @@ If you don't need to look up any genotypes (the question is general knowledge or
                 snp_result["categories"] = annotation.get("categories")
                 if annotation.get("improved_at") or annotation.get("source") in ("claude", "user"):
                     snp_result["is_improved"] = True
+
+                # Get genotype label if available (Claude's classification)
+                label_data = await database.get_genotype_label(rsid)
+                genotype_label = label_data.get("label") if label_data else None
+
+                # Calculate effective repute based on user's actual genotype (use Claude's label if available)
+                genotype_info = annotation.get("genotype_info", {})
+                snp_result["effective_repute"] = snpedia.get_effective_repute(
+                    genotype_info,
+                    genotype,
+                    annotation.get("repute"),
+                    genotype_label
+                )
 
             # Get personalized interpretation
             try:
@@ -884,9 +1010,9 @@ async def generate_query_suggestions() -> list[str]:
     - Interesting SNPs in the user's genome
     - Categories/tags that have been explored
     """
-    import os
+    from . import claude_service
 
-    client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    client = claude_service.get_client()
 
     # Gather context about user's activity and genome
     context_parts = []

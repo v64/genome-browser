@@ -706,7 +706,7 @@ export function SnpFullPage({ rsid, onClose, onSnpClick, onTagClick }) {
               <span className="flex items-center gap-2">
                 <span className="text-gray-500">Importance:</span>
                 {data.annotation?.magnitude != null && <MagnitudeBadge magnitude={data.annotation.magnitude} />}
-                {data.annotation?.repute && <ReputeBadge repute={data.annotation.repute} />}
+                {(data.effective_repute) && <ReputeBadge repute={data.effective_repute} />}
                 {(!data.annotation?.magnitude && data.annotation?.magnitude !== 0) && !data.annotation?.repute && (
                   <span className="text-gray-500">Unknown</span>
                 )}

@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
 import { LabelBadge } from './LabelBadge'
+import { stripCitations } from '../utils/text'
 
 export function RiskDashboard({ onSnpClick }) {
   const queryClient = useQueryClient()
@@ -23,7 +24,7 @@ export function RiskDashboard({ onSnpClick }) {
   const { data: processingStatus } = useQuery({
     queryKey: ['processingStatus'],
     queryFn: async () => {
-      const res = await fetch('http://localhost:8000/api/agent/discovery/processing')
+      const res = await fetch('/api/agent/discovery/processing')
       return res.json()
     },
     refetchInterval: 1000, // Poll every second for responsive UI
@@ -199,14 +200,14 @@ export function RiskDashboard({ onSnpClick }) {
       </div>
 
       {/* Genome Stats Bar */}
-      <div className="flex items-center gap-6 text-sm text-gray-500 dark:text-gray-400">
-        <span>{dashboard?.total_snps?.toLocaleString()} total SNPs</span>
-        <span className="text-gray-300 dark:text-gray-600">•</span>
+      <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+        <span>{dashboard?.total_snps?.toLocaleString()} SNPs</span>
+        <span className="hidden sm:inline text-gray-300 dark:text-gray-600">•</span>
         <span>{dashboard?.annotated_snps?.toLocaleString()} annotated</span>
-        <span className="text-gray-300 dark:text-gray-600">•</span>
-        <span>{activityStats.knowledge_entries || 0} knowledge entries</span>
-        <span className="text-gray-300 dark:text-gray-600">•</span>
-        <span>{activityStats.recent_activity_count || 0} actions this week</span>
+        <span className="hidden sm:inline text-gray-300 dark:text-gray-600">•</span>
+        <span>{activityStats.knowledge_entries || 0} knowledge</span>
+        <span className="hidden sm:inline text-gray-300 dark:text-gray-600">•</span>
+        <span>{activityStats.recent_activity_count || 0} this week</span>
       </div>
 
       {/* Needs Attention Section */}
@@ -306,12 +307,12 @@ export function RiskDashboard({ onSnpClick }) {
                   )}
                 </div>
 
-                <div className={`flex items-center gap-2 mb-2 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
+                <div className={`flex items-center gap-2 mb-2 pr-6 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
                   <span className="font-mono font-semibold text-orange-600 dark:text-orange-400">
                     {snp.rsid}
                   </span>
                   {snp.gene && (
-                    <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs">
+                    <span className="px-1.5 py-0.5 bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300 rounded text-xs truncate max-w-[120px]">
                       {snp.gene}
                     </span>
                   )}
@@ -323,13 +324,13 @@ export function RiskDashboard({ onSnpClick }) {
                 <div className={isProcessing || isExiting ? 'opacity-50' : ''}>
                   {snp.title && (
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 line-clamp-1">
-                      {snp.title}
+                      {stripCitations(snp.title)}
                     </p>
                   )}
 
                   {snp.summary && (
                     <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
-                      {snp.summary}
+                      {stripCitations(snp.summary)}
                     </p>
                   )}
 
@@ -340,7 +341,7 @@ export function RiskDashboard({ onSnpClick }) {
 
                 <div className={`flex items-center gap-2 ${isProcessing || isExiting ? 'opacity-50' : ''}`}>
                   <MagnitudeBadge magnitude={snp.magnitude} />
-                  <ReputeBadge repute={snp.repute} />
+                  <ReputeBadge repute={snp.effective_repute} />
                 </div>
               </button>
               )
@@ -407,20 +408,20 @@ export function RiskDashboard({ onSnpClick }) {
                 {/* Title */}
                 {snp.title && (
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 line-clamp-1">
-                    {snp.title}
+                    {stripCitations(snp.title)}
                   </p>
                 )}
 
                 {/* Summary */}
                 {snp.summary && (
                   <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
-                    {snp.summary}
+                    {stripCitations(snp.summary)}
                   </p>
                 )}
 
                 {/* Badges Row */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <ReputeBadge repute={snp.repute} />
+                  <ReputeBadge repute={snp.effective_repute} />
                   {snp.label && <LabelBadge label={snp.label} size="sm" />}
                   {snp.categories?.slice(0, 2).map((cat) => (
                     <span key={cat} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">
@@ -538,18 +539,18 @@ export function RiskDashboard({ onSnpClick }) {
 
                   {snp.title && (
                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 line-clamp-1">
-                      {snp.title}
+                      {stripCitations(snp.title)}
                     </p>
                   )}
 
                   {snp.summary && (
                     <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
-                      {snp.summary}
+                      {stripCitations(snp.summary)}
                     </p>
                   )}
 
                   <div className="flex items-center gap-2 flex-wrap">
-                    <ReputeBadge repute={snp.repute} />
+                    <ReputeBadge repute={snp.effective_repute} />
                     {snp.label && <LabelBadge label={snp.label} size="sm" />}
                     {snp.categories?.slice(0, 2).map((cat) => (
                       <span key={cat} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded text-xs">

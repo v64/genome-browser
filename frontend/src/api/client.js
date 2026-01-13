@@ -100,6 +100,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ apply, instructions }),
     }),
+
+  // Premium reanalysis with quality tier
+  reanalyzeSnp: (rsid, quality = 'standard') =>
+    fetchApi(`/snps/${rsid}/improve?quality=${quality}`, { method: 'POST' }),
   editAnnotation: (rsid, data) =>
     fetchApi(`/annotations/${rsid}`, {
       method: 'PUT',
@@ -135,9 +139,38 @@ export const api = {
   deleteLabel: (rsid) => fetchApi(`/labels/${rsid}`, { method: 'DELETE' }),
   searchByLabel: (label, limit = 50, offset = 0) =>
     fetchApi(`/labels/snps?label=${encodeURIComponent(label)}&limit=${limit}&offset=${offset}`),
+
+  // Batch classify unlabeled SNPs
+  batchClassifyLabels: (limit = 50) =>
+    fetchApi(`/agent/classify-unlabeled?limit=${limit}`, { method: 'POST' }),
   getLabelsBatch: (rsids) =>
     fetchApi('/labels/batch', {
       method: 'POST',
       body: JSON.stringify(rsids),
     }),
+
+  // Settings / API Key
+  checkApiKey: () => fetchApi('/settings/api-key'),
+  setApiKey: (apiKey) =>
+    fetchApi('/settings/api-key', {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  deleteApiKey: () => fetchApi('/settings/api-key', { method: 'DELETE' }),
+
+  // Settings / Genome
+  checkGenome: () => fetchApi('/settings/genome'),
+  uploadGenome: async (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await fetch(`${API_BASE}/settings/genome`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Upload failed' }))
+      throw new Error(error.detail || 'Upload failed')
+    }
+    return response.json()
+  },
 }

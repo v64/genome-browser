@@ -22,7 +22,7 @@ export default function DataLogViewer({ onSnpClick }) {
 
   const fetchStats = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/agent/stats');
+      const res = await fetch('/api/agent/stats');
       const data = await res.json();
       setStats(data);
     } catch (err) {
@@ -32,7 +32,7 @@ export default function DataLogViewer({ onSnpClick }) {
 
   const fetchChatMessages = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/chat/history');
+      const res = await fetch('/api/chat/history');
       const data = await res.json();
       setChatMessages(data.messages || []);
     } catch (err) {
@@ -42,7 +42,7 @@ export default function DataLogViewer({ onSnpClick }) {
 
   const fetchRecentImprovements = async () => {
     try {
-      const res = await fetch('http://localhost:8000/api/annotations/recent/improved?limit=20');
+      const res = await fetch('/api/annotations/recent/improved?limit=20');
       const data = await res.json();
       setRecentImprovements(data.improvements || []);
     } catch (err) {
@@ -58,7 +58,7 @@ export default function DataLogViewer({ onSnpClick }) {
       if (filters.data_type) params.append('data_type', filters.data_type);
       params.append('limit', '200');
 
-      const res = await fetch(`http://localhost:8000/api/agent/data-log?${params}`);
+      const res = await fetch(`/api/agent/data-log?${params}`);
       const data = await res.json();
 
       let filtered = data.entries || [];

@@ -61,6 +61,10 @@ async def init_db():
             await db.execute("ALTER TABLE annotations ADD COLUMN title TEXT")
         except:
             pass
+        try:
+            await db.execute("ALTER TABLE annotations ADD COLUMN analysis_model TEXT")
+        except:
+            pass
 
         await db.execute("""
             CREATE TABLE IF NOT EXISTS favorites (
@@ -153,6 +157,15 @@ async def init_db():
             )
         """)
 
+        # Settings table for runtime configuration (e.g., API keys)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP
+            )
+        """)
+
         # Create indexes for faster searching
         await db.execute("CREATE INDEX IF NOT EXISTS idx_snps_chromosome ON snps(chromosome)")
         await db.execute("CREATE INDEX IF NOT EXISTS idx_annotations_magnitude ON annotations(magnitude)")
@@ -200,6 +213,8 @@ async def search_snps(
     tag: Optional[str] = None,
     min_magnitude: Optional[float] = None,
     repute: Optional[str] = None,
+    effective_repute_filter: Optional[str] = None,
+    label: Optional[str] = None,
     favorites_only: bool = False,
     limit: int = 50,
     offset: int = 0
@@ -212,11 +227,13 @@ async def search_snps(
         base_query = """
             SELECT s.*, a.summary, a.magnitude, a.repute, a.gene, a.categories,
                    a.genotype_info, a.ref_urls, a.fetched_at, a.title,
+                   gl.label as genotype_label,
                    CASE WHEN f.rsid IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
                    CASE WHEN a.rsid IS NOT NULL THEN 1 ELSE 0 END as has_annotation
             FROM snps s
             LEFT JOIN annotations a ON s.rsid = a.rsid
             LEFT JOIN favorites f ON s.rsid = f.rsid
+            LEFT JOIN genotype_labels gl ON s.rsid = gl.rsid
         """
 
         conditions = []
@@ -238,9 +255,11 @@ async def search_snps(
             params.append(f"%{category}%")
 
         if tag:
-            # Match exact tag within JSON array (e.g., "population genetics" in ["ancestry", "population genetics"])
-            conditions.append('a.categories LIKE ?')
-            params.append(f'%"{tag}"%')
+            # Support multiple tags (comma-separated) - all must match (AND)
+            tags = [t.strip() for t in tag.split(',') if t.strip()]
+            for t in tags:
+                conditions.append('a.categories LIKE ?')
+                params.append(f'%"{t}"%')
 
         if min_magnitude is not None:
             conditions.append("a.magnitude >= ?")
@@ -253,10 +272,55 @@ async def search_snps(
         if favorites_only:
             conditions.append("f.rsid IS NOT NULL")
 
+        if label:
+            conditions.append("gl.label = ?")
+            params.append(label)
+
+        # If filtering by effective_repute, we need annotations to calculate it
+        if effective_repute_filter:
+            conditions.append("a.rsid IS NOT NULL")
+
         where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
+        # If filtering by effective_repute, we need to fetch all matching rows,
+        # calculate effective_repute for each, filter, then paginate in Python
+        if effective_repute_filter:
+            from . import snpedia
+
+            order_clause = " ORDER BY a.magnitude DESC NULLS LAST, s.rsid"
+            query = f"{base_query} {where_clause} {order_clause}"
+
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                all_results = []
+                for row in rows:
+                    r = dict(row)
+                    r["categories"] = json.loads(r["categories"]) if r["categories"] else []
+                    r["genotype_info"] = json.loads(r["genotype_info"]) if r["genotype_info"] else {}
+                    r["references"] = json.loads(r["ref_urls"]) if r.get("ref_urls") else []
+                    r.pop("ref_urls", None)
+                    r["is_favorite"] = bool(r["is_favorite"])
+                    r["has_annotation"] = bool(r["has_annotation"])
+
+                    # Calculate effective repute (use Claude's label if available)
+                    r["effective_repute"] = snpedia.get_effective_repute(
+                        r["genotype_info"],
+                        r.get("genotype"),
+                        r.get("repute"),
+                        r.get("genotype_label")
+                    )
+
+                    # Filter by effective_repute
+                    if r["effective_repute"] == effective_repute_filter:
+                        all_results.append(r)
+
+                total = len(all_results)
+                results = all_results[offset:offset + limit]
+                return results, total
+
+        # Standard path (no effective_repute filtering)
         # Get total count
-        count_query = f"SELECT COUNT(*) FROM snps s LEFT JOIN annotations a ON s.rsid = a.rsid LEFT JOIN favorites f ON s.rsid = f.rsid {where_clause}"
+        count_query = f"SELECT COUNT(*) FROM snps s LEFT JOIN annotations a ON s.rsid = a.rsid LEFT JOIN favorites f ON s.rsid = f.rsid LEFT JOIN genotype_labels gl ON s.rsid = gl.rsid {where_clause}"
         async with db.execute(count_query, params) as cursor:
             total = (await cursor.fetchone())[0]
 
@@ -277,6 +341,16 @@ async def search_snps(
                 r.pop("ref_urls", None)
                 r["is_favorite"] = bool(r["is_favorite"])
                 r["has_annotation"] = bool(r["has_annotation"])
+
+                # Calculate effective repute (use Claude's label if available)
+                from . import snpedia
+                r["effective_repute"] = snpedia.get_effective_repute(
+                    r["genotype_info"],
+                    r.get("genotype"),
+                    r.get("repute"),
+                    r.get("genotype_label")
+                )
+
                 results.append(r)
 
             return results, total
@@ -310,7 +384,8 @@ async def improve_annotation(
     genotype_info: Optional[dict] = None,
     categories: Optional[list[str]] = None,
     title: Optional[str] = None,
-    source: str = "claude"
+    source: str = "claude",
+    analysis_model: Optional[str] = None
 ) -> bool:
     """Improve an annotation, preserving the original."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -361,6 +436,10 @@ async def improve_annotation(
         if title is not None:
             updates.append("title = ?")
             params.append(title)
+
+        if analysis_model is not None:
+            updates.append("analysis_model = ?")
+            params.append(analysis_model)
 
         params.append(rsid)
 
@@ -1293,10 +1372,21 @@ async def get_most_interesting_snps(limit: int = 20) -> list[dict]:
         async with db.execute(query, (limit,)) as cursor:
             rows = await cursor.fetchall()
             results = []
+
+            from . import snpedia
+
             for row in rows:
                 r = dict(row)
                 r["categories"] = json.loads(r["categories"]) if r["categories"] else []
                 r["is_improved"] = bool(r.get("improved_at") or r.get("annotation_source") in ("claude", "user"))
+
+                # Calculate effective_repute (use Claude's label if available)
+                annotation = await get_annotation(r["rsid"])
+                genotype_info = annotation.get("genotype_info", {}) if annotation else {}
+                r["effective_repute"] = snpedia.get_effective_repute(
+                    genotype_info, r.get("genotype"), r.get("repute"), r.get("label")
+                )
+
                 results.append(r)
             return results
 
@@ -1345,15 +1435,39 @@ async def get_needs_attention_snps(limit: int = 10) -> list[dict]:
             LIMIT ?
         """
 
-        async with db.execute(query, (limit,)) as cursor:
+        async with db.execute(query, (limit * 3,)) as cursor:  # Fetch more to filter
             rows = await cursor.fetchall()
             results = []
+
+            # Need to also fetch genotype_info for effective_repute calculation
+            from . import snpedia
+
             for row in rows:
                 r = dict(row)
                 r["categories"] = json.loads(r["categories"]) if r["categories"] else []
                 r["is_favorite"] = bool(r["is_favorite"])
                 r["is_improved"] = bool(r.get("improved_at") or r.get("annotation_source") in ("claude", "user"))
-                results.append(r)
+
+                # Get genotype_info for effective_repute calculation (use Claude's label if available)
+                annotation = await get_annotation(r["rsid"])
+                genotype_info = annotation.get("genotype_info", {}) if annotation else {}
+                r["effective_repute"] = snpedia.get_effective_repute(
+                    genotype_info, r.get("genotype"), r.get("repute"), r.get("label")
+                )
+
+                # Only include if attention_reason is NOT about risk, OR if effective_repute is actually bad
+                attention_reason = r.get("attention_reason", "")
+                if "Risk variant" in attention_reason:
+                    # Only include if user actually has the risk genotype
+                    if r["effective_repute"] == "bad":
+                        results.append(r)
+                else:
+                    # Non-risk attention reasons (high magnitude, missing title) - always include
+                    results.append(r)
+
+                if len(results) >= limit:
+                    break
+
             return results
 
 
@@ -1389,11 +1503,22 @@ async def get_rare_unusual_snps(limit: int = 10) -> list[dict]:
         async with db.execute(query, (limit,)) as cursor:
             rows = await cursor.fetchall()
             results = []
+
+            from . import snpedia
+
             for row in rows:
                 r = dict(row)
                 r["categories"] = json.loads(r["categories"]) if r["categories"] else []
                 r["is_favorite"] = bool(r["is_favorite"])
                 r["is_improved"] = bool(r.get("improved_at") or r.get("annotation_source") in ("claude", "user"))
+
+                # Calculate effective_repute (use Claude's label if available)
+                annotation = await get_annotation(r["rsid"])
+                genotype_info = annotation.get("genotype_info", {}) if annotation else {}
+                r["effective_repute"] = snpedia.get_effective_repute(
+                    genotype_info, r.get("genotype"), r.get("repute"), r.get("label")
+                )
+
                 results.append(r)
             return results
 
@@ -1645,3 +1770,49 @@ async def get_recently_improved_annotations(limit: int = 20) -> list[dict]:
                 r["categories"] = json.loads(r["categories"]) if r["categories"] else []
                 results.append(r)
             return results
+
+
+# ============ Settings Functions ============
+
+async def get_setting(key: str) -> Optional[str]:
+    """Get a setting value by key."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        async with db.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+
+async def set_setting(key: str, value: str) -> None:
+    """Set a setting value."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        await db.execute("""
+            INSERT INTO settings (key, value, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = excluded.updated_at
+        """, (key, value, datetime.now().isoformat()))
+        await db.commit()
+
+
+async def delete_setting(key: str) -> bool:
+    """Delete a setting by key."""
+    async with aiosqlite.connect(DATABASE_PATH) as db:
+        cursor = await db.execute("DELETE FROM settings WHERE key = ?", (key,))
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+def get_setting_sync(key: str) -> Optional[str]:
+    """Synchronous version of get_setting for use in non-async contexts."""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(DATABASE_PATH)
+        cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
+    except:
+        return None

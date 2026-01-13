@@ -12,7 +12,7 @@ export default function LearningConsole({ onSnpClick }) {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch('http://localhost:8000/api/agent/status');
+        const res = await fetch('/api/agent/status');
         const data = await res.json();
         setStatus(data);
         setLogs(data.logs || []);
@@ -36,7 +36,7 @@ export default function LearningConsole({ onSnpClick }) {
   const toggleAgent = async () => {
     const endpoint = status?.running ? 'stop' : 'start';
     try {
-      await fetch(`http://localhost:8000/api/agent/${endpoint}`, { method: 'POST' });
+      await fetch(`/api/agent/${endpoint}`, { method: 'POST' });
     } catch (err) {
       console.error('Failed to toggle agent:', err);
     }
@@ -48,7 +48,7 @@ export default function LearningConsole({ onSnpClick }) {
 
     setProcessing(true);
     try {
-      const res = await fetch('http://localhost:8000/api/agent/query', {
+      const res = await fetch('/api/agent/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: query.trim() })
@@ -65,7 +65,7 @@ export default function LearningConsole({ onSnpClick }) {
 
   const clearLogs = async () => {
     try {
-      await fetch('http://localhost:8000/api/agent/logs', { method: 'DELETE' });
+      await fetch('/api/agent/logs', { method: 'DELETE' });
     } catch (err) {
       console.error('Failed to clear logs:', err);
     }

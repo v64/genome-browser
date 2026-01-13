@@ -139,10 +139,11 @@ async def trigger_api_error_sleep(error: Exception, context: str):
 
 def get_claude_client() -> Optional[AsyncAnthropic]:
     """Get the Claude client if API key is configured."""
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
+    from . import claude_service
+    try:
+        return claude_service.get_client()
+    except ValueError:
         return None
-    return AsyncAnthropic(api_key=api_key)
 
 
 async def query_related_snps(rsid: str, context: str = "") -> list[str]:
@@ -245,10 +246,28 @@ If you don't have specific information about this SNP, provide your best assessm
 
         response_text = response.content[0].text.strip()
 
-        json_match = re.search(r'\{.*?\}', response_text, re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group())
+        # Try to extract JSON object with multiple strategies
+        data = None
 
+        # Strategy 1: Find outermost braces
+        first_brace = response_text.find('{')
+        last_brace = response_text.rfind('}')
+        if first_brace != -1 and last_brace > first_brace:
+            try:
+                data = json.loads(response_text[first_brace:last_brace + 1])
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 2: Try code fence extraction
+        if not data:
+            code_match = re.search(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', response_text)
+            if code_match:
+                try:
+                    data = json.loads(code_match.group(1))
+                except json.JSONDecodeError:
+                    pass
+
+        if data and isinstance(data, dict):
             # Log the conversation
             related = data.get("related_snps", [])
             await log_claude_conversation(
@@ -258,6 +277,8 @@ If you don't have specific information about this SNP, provide your best assessm
             )
 
             return data
+        else:
+            log_discovery(f"Could not parse JSON for {rsid}: {response_text[:200]}", "WARN")
 
     except Exception as e:
         log_discovery(f"Error exploring SNP {rsid}: {e}", "ERROR")

@@ -1,5 +1,6 @@
 import { MagnitudeBadge } from './MagnitudeBadge'
 import { ReputeBadge } from './ReputeBadge'
+import { stripCitations } from '../utils/text'
 
 export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
   const handleFavoriteClick = (e) => {
@@ -12,21 +13,21 @@ export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
       onClick={() => onClick?.(snp)}
       className="card p-4 hover:shadow-md transition-shadow cursor-pointer"
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400">
+          <div className="flex items-center gap-2 min-w-0">
+            <h3 className="text-lg font-semibold text-blue-600 dark:text-blue-400 shrink-0">
               {snp.rsid}
             </h3>
             {snp.gene && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded">
+              <span className="px-2 py-0.5 text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded truncate max-w-[150px]">
                 {snp.gene}
               </span>
             )}
           </div>
           {snp.title && (
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {snp.title}
+              {stripCitations(snp.title)}
             </p>
           )}
 
@@ -73,12 +74,12 @@ export function SnpCard({ snp, onClick, onToggleFavorite, onTagClick }) {
 
       {snp.summary && (
         <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
-          {snp.summary}
+          {stripCitations(snp.summary)}
         </p>
       )}
 
       <div className="flex flex-wrap items-center gap-2 mt-3">
-        <ReputeBadge repute={snp.repute} />
+        <ReputeBadge repute={snp.effective_repute} />
 
         {snp.categories?.map((cat) => (
           <button
